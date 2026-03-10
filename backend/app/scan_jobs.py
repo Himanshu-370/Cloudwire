@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -7,8 +8,12 @@ from threading import Lock
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
+
 from .graph_store import GraphStore
 from .models import JobStatus, ScanMode
+
+_MAX_RETAINED_TERMINAL_JOBS = 50
 
 
 def _utc_now_iso() -> str:
@@ -47,6 +52,7 @@ class ScanJob:
     finished_at: Optional[str] = None
     error: Optional[str] = None
     cancellation_requested: bool = False
+    active_services: List[str] = field(default_factory=list)
     graph_store: GraphStore = field(default_factory=GraphStore)
 
 
@@ -58,6 +64,23 @@ class ScanJobStore:
         self._latest_graph_id: Optional[str] = None
         self._lock = Lock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="scan-job")
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=False)
+
+    def _prune_terminal_jobs_locked(self) -> None:
+        terminal_states = {"completed", "failed", "cancelled"}
+        terminal = [job for job in self._jobs.values() if job.status in terminal_states]
+        if len(terminal) <= _MAX_RETAINED_TERMINAL_JOBS:
+            return
+        terminal.sort(key=lambda j: j.finished_at or "", reverse=True)
+        for job in terminal[_MAX_RETAINED_TERMINAL_JOBS:]:
+            if self._latest_graph_id == job.id:
+                continue
+            cached = self._cache.get(job.cache_key)
+            if cached and cached.job_id == job.id:
+                continue
+            self._jobs.pop(job.id, None)
 
     def _prune_expired_cache_locked(self) -> None:
         now = datetime.now(timezone.utc)
@@ -111,6 +134,7 @@ class ScanJobStore:
         with self._lock:
             self._jobs[job_id] = job
             self._in_flight[cache_key] = job_id
+            self._prune_terminal_jobs_locked()
         return job
 
     def submit_job(self, job_id: str, runner: Callable[[], None]) -> None:
@@ -120,39 +144,76 @@ class ScanJobStore:
         try:
             runner()
         except Exception as exc:
+            logger.exception("Unhandled exception in scan job %s", job_id)
             self.mark_failed(job_id, f"Unhandled scan failure: {type(exc).__name__} - {exc}")
 
     def mark_running(self, job_id: str) -> None:
         with self._lock:
-            job = self._jobs[job_id]
+            job = self._jobs.get(job_id)
+            if job is None:
+                logger.error("mark_running called for unknown job %s", job_id)
+                return
             if job.status != "queued":
+                return
+            if job.cancellation_requested:
+                job.status = "cancelled"
+                job.error = "Cancelled by user"
+                job.finished_at = _utc_now_iso()
+                self._in_flight.pop(job.cache_key, None)
                 return
             job.status = "running"
             job.started_at = _utc_now_iso()
+
+    def _refresh_current_service(self, job: ScanJob) -> None:
+        active = sorted(set(job.active_services))
+        if not active:
+            job.current_service = "stop requested" if job.cancellation_requested and job.status in {"queued", "running"} else None
+            return
+        if len(active) == 1:
+            label = active[0]
+        elif len(active) == 2:
+            label = ", ".join(active)
+        else:
+            preview = ", ".join(active[:2])
+            label = f"{len(active)} active ({preview}...)"
+        job.current_service = f"{label} | stop requested" if job.cancellation_requested else label
 
     def update_progress(
         self,
         job_id: str,
         *,
+        event: str,
         current_service: Optional[str],
         services_done: int,
         services_total: int,
     ) -> None:
         with self._lock:
-            job = self._jobs[job_id]
+            job = self._jobs.get(job_id)
+            if job is None:
+                logger.error("update_progress called for unknown job %s", job_id)
+                return
             if job.status not in {"queued", "running"}:
                 return
-            job.current_service = current_service
+            if current_service:
+                if event == "start":
+                    if current_service not in job.active_services:
+                        job.active_services.append(current_service)
+                elif event == "finish":
+                    job.active_services = [service for service in job.active_services if service != current_service]
             job.services_done = services_done
             job.services_total = services_total
             job.progress_percent = _progress_percent(services_done, services_total)
             if job.status == "queued":
                 job.status = "running"
                 job.started_at = _utc_now_iso()
+            self._refresh_current_service(job)
 
     def mark_completed(self, job_id: str, *, ttl_seconds: int) -> None:
         with self._lock:
-            job = self._jobs[job_id]
+            job = self._jobs.get(job_id)
+            if job is None:
+                logger.error("mark_completed called for unknown job %s", job_id)
+                return
             if job.status not in {"queued", "running"}:
                 return
             job.status = "completed"
@@ -160,6 +221,7 @@ class ScanJobStore:
             job.current_service = None
             job.services_done = job.services_total
             job.finished_at = _utc_now_iso()
+            job.active_services = []
             self._latest_graph_id = job_id
 
             self._in_flight.pop(job.cache_key, None)
@@ -170,11 +232,16 @@ class ScanJobStore:
 
     def mark_failed(self, job_id: str, error: str) -> None:
         with self._lock:
-            job = self._jobs[job_id]
+            job = self._jobs.get(job_id)
+            if job is None:
+                logger.error("mark_failed called for unknown job %s (error: %s)", job_id, error)
+                return
             if job.status not in {"queued", "running"}:
                 return
             job.status = "failed"
             job.error = error
+            job.current_service = None
+            job.active_services = []
             job.finished_at = _utc_now_iso()
             self._in_flight.pop(job.cache_key, None)
 
@@ -186,6 +253,15 @@ class ScanJobStore:
             if job.status not in {"queued", "running"}:
                 return False
             job.cancellation_requested = True
+            if job.status == "queued":
+                job.status = "cancelled"
+                job.error = "Cancelled by user"
+                job.current_service = None
+                job.active_services = []
+                job.finished_at = _utc_now_iso()
+                self._in_flight.pop(job.cache_key, None)
+                return True
+            self._refresh_current_service(job)
             return True
 
     def is_cancel_requested(self, job_id: str) -> bool:
@@ -205,6 +281,7 @@ class ScanJobStore:
             job.status = "cancelled"
             job.error = reason
             job.current_service = None
+            job.active_services = []
             job.finished_at = _utc_now_iso()
             self._in_flight.pop(job.cache_key, None)
 
@@ -219,9 +296,10 @@ class ScanJobStore:
             if job_id not in self._jobs:
                 raise KeyError(job_id)
             job = self._jobs[job_id]
-            snapshot = {
+            job_snapshot = {
                 "job_id": job.id,
                 "status": job.status,
+                "cancellation_requested": job.cancellation_requested,
                 "mode": job.mode,
                 "region": job.region,
                 "services": list(job.services),
@@ -233,27 +311,15 @@ class ScanJobStore:
                 "started_at": job.started_at,
                 "finished_at": job.finished_at,
                 "error": job.error,
-                "graph_store": job.graph_store,
             }
-        graph_payload = snapshot["graph_store"].get_graph_payload()
+            graph_store = job.graph_store
+        graph_payload = graph_store.get_graph_payload()
         metadata = graph_payload.get("metadata", {})
         return {
-            "job_id": snapshot["job_id"],
-            "status": snapshot["status"],
-            "mode": snapshot["mode"],
-            "region": snapshot["region"],
-            "services": snapshot["services"],
-            "progress_percent": snapshot["progress_percent"],
-            "current_service": snapshot["current_service"],
-            "services_done": snapshot["services_done"],
-            "services_total": snapshot["services_total"],
+            **job_snapshot,
             "node_count": metadata.get("node_count", 0),
             "edge_count": metadata.get("edge_count", 0),
             "warnings": metadata.get("warnings", []),
-            "created_at": snapshot["created_at"],
-            "started_at": snapshot["started_at"],
-            "finished_at": snapshot["finished_at"],
-            "error": snapshot["error"],
         }
 
     def get_graph_payload(self, job_id: str) -> Dict[str, Any]:

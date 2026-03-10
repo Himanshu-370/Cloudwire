@@ -1,0 +1,87 @@
+import { useCallback, useRef, useState } from "react";
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function useGraphViewport() {
+  const [viewport, setViewportState] = useState({ x: 0, y: 0, scale: 1 });
+  const viewportRef = useRef({ x: 0, y: 0, scale: 1 });
+
+  const setViewport = useCallback((next) => {
+    const value = typeof next === "function" ? next(viewportRef.current) : next;
+    viewportRef.current = value;
+    setViewportState(value);
+  }, []);
+
+  // Stable - reads from ref, no viewport state dependency
+  const screenToGraph = useCallback((clientX, clientY, bounds) => ({
+    x: (clientX - bounds.left - viewportRef.current.x) / viewportRef.current.scale,
+    y: (clientY - bounds.top - viewportRef.current.y) / viewportRef.current.scale,
+  }), []);
+
+  const zoomAtPoint = useCallback((delta, point) => {
+    setViewport((previous) => {
+      const nextScale = clamp(previous.scale * delta, 0.18, 2.8);
+      return {
+        scale: nextScale,
+        x: point.x - (point.x - previous.x) * (nextScale / previous.scale),
+        y: point.y - (point.y - previous.y) * (nextScale / previous.scale),
+      };
+    });
+  }, [setViewport]);
+
+  const panBy = useCallback((deltaX, deltaY) => {
+    setViewport((previous) => ({
+      ...previous,
+      x: previous.x + deltaX,
+      y: previous.y + deltaY,
+    }));
+  }, [setViewport]);
+
+  const fitToNodes = useCallback((container, nodes) => {
+    if (!container || !nodes.length) return;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (!width || !height) return;
+
+    const minX = Math.min(...nodes.map((node) => node.position.x - (node.width || 120) / 2));
+    const maxX = Math.max(...nodes.map((node) => node.position.x + (node.width || 120) / 2));
+    const minY = Math.min(...nodes.map((node) => node.position.y - (node.height || 80) / 2));
+    const maxY = Math.max(...nodes.map((node) => node.position.y + (node.height || 80) / 2));
+
+    const graphWidth = Math.max(1, maxX - minX);
+    const graphHeight = Math.max(1, maxY - minY);
+    const scale = clamp(Math.min(width / (graphWidth + 180), height / (graphHeight + 180)), 0.18, 1.45);
+    const centeredX = width / 2 - ((minX + maxX) / 2) * scale;
+    const centeredY = height / 2 - ((minY + maxY) / 2) * scale;
+
+    setViewport({ x: centeredX, y: centeredY, scale });
+  }, [setViewport]);
+
+  const centerNode = useCallback((container, node, _width, _height, zoom = 1.08) => {
+    if (!container || !node) return;
+    const nextScale = clamp(zoom, 0.18, 2.8);
+    // node.position is the center of the node; place it at the screen center.
+    setViewport({
+      scale: nextScale,
+      x: container.clientWidth / 2 - node.position.x * nextScale,
+      y: container.clientHeight / 2 - node.position.y * nextScale,
+    });
+  }, [setViewport]);
+
+  const resetView = useCallback(() => {
+    setViewport({ x: 0, y: 0, scale: 1 });
+  }, [setViewport]);
+
+  return {
+    viewport,
+    setViewport,
+    screenToGraph,
+    zoomAtPoint,
+    panBy,
+    fitToNodes,
+    centerNode,
+    resetView,
+  };
+}

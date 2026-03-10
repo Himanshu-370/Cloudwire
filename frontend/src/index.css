@@ -4,14 +4,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-main: #000000;
-  --bg-panel: #020202;
-  --line: rgba(0, 243, 255, 0.28);
-  --text-main: #e4f9ff;
-  --text-dim: #7ea5b7;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -23,37 +15,14 @@ body,
   height: 100%;
   margin: 0;
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
-  background: #000;
-  color: var(--text-main);
+  background: #05080d;
+  color: #d6e3ef;
 }
 
-.react-flow__node {
-  border-radius: 12px;
-  border: 1px solid rgba(0, 255, 188, 0.42);
-  color: #ecfffb;
-  text-shadow: 0 0 6px rgba(0, 231, 255, 0.32);
-  box-shadow: 0 0 24px rgba(0, 255, 188, 0.15);
-  font-size: 12px;
-  letter-spacing: 0.2px;
-}
-
-.react-flow {
-  background: #000;
-}
-
-.react-flow__edge-path {
-  filter: drop-shadow(0 0 3px rgba(0, 243, 255, 0.25));
-}
-
-.react-flow__controls,
-.react-flow__minimap {
-  border: 1px solid var(--line);
-  box-shadow: 0 0 14px rgba(0, 243, 255, 0.23);
-  background: rgba(0, 0, 0, 0.95);
-}
-
-.react-flow__attribution {
-  background: transparent;
+button,
+input,
+select {
+  font: inherit;
 }
 
 ::-webkit-scrollbar {
@@ -62,10 +31,10 @@ body,
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.95);
+  background: rgba(4, 8, 12, 0.96);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(0, 243, 255, 0.58), rgba(0, 255, 188, 0.5));
+  background: linear-gradient(180deg, rgba(255, 153, 0, 0.42), rgba(0, 231, 255, 0.34));
   border-radius: 999px;
 }
