@@ -1,0 +1,247 @@
+# Usage Guide
+
+Everything you need to install, configure, and use awsflow.
+
+---
+
+## Requirements
+
+- Python 3.9 or later
+- AWS credentials configured on your machine (see [AWS credentials](#aws-credentials) below)
+- A supported OS: macOS, Linux, or Windows (WSL recommended on Windows)
+
+---
+
+## Installation
+
+```bash
+pip install awsflow
+```
+
+If you use `pipx` (recommended — keeps the tool isolated from your project environments):
+
+```bash
+pipx install awsflow
+```
+
+---
+
+## Quick start
+
+```bash
+awsflow
+```
+
+The server starts on `http://localhost:8080` and your browser opens automatically.
+
+1. Select the AWS services you want to scan from the dropdown in the top bar
+2. Choose a region
+3. Click **Scan**
+4. Watch the graph build in real time as resources are discovered
+
+---
+
+## CLI reference
+
+```
+awsflow [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port` | `8080` | Local port to listen on |
+| `--host` | `127.0.0.1` | Bind address |
+| `--profile` | (AWS default) | AWS credentials profile from `~/.aws/credentials` |
+| `--region` | `us-east-1` | Default AWS region shown in the UI |
+| `--no-browser` | off | Start server without opening the browser |
+| `--print-url` | off | Print the URL to stdout and exit (useful for scripting) |
+| `--version` | — | Print the installed version |
+| `--help` | — | Show help and exit |
+
+### Examples
+
+```bash
+# Use a specific AWS profile
+awsflow --profile production
+
+# Use a specific region
+awsflow --region eu-west-1
+
+# Custom port (if 8080 is taken)
+awsflow --port 9000
+
+# Start without auto-opening the browser
+awsflow --no-browser
+
+# SSH tunnel workflow — print the URL and open it locally
+awsflow --print-url
+# → http://localhost:8080
+```
+
+---
+
+## AWS credentials
+
+awsflow reads credentials from the standard AWS credential chain in this order:
+
+1. **Environment variables** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
+2. **AWS CLI profiles** — `~/.aws/credentials` and `~/.aws/config`
+3. **IAM instance/container role** — when running on EC2, ECS, or Lambda
+
+This means any tool that writes to the standard credential files works automatically:
+
+```bash
+# AWS SSO
+aws sso login --profile my-profile
+awsflow --profile my-profile
+
+# saml2aws
+saml2aws login
+awsflow
+
+# aws-vault
+aws-vault exec my-profile -- awsflow
+
+# Standard AWS CLI profile
+aws configure --profile staging
+awsflow --profile staging
+```
+
+### Minimum IAM permissions
+
+awsflow only needs **read** access. The exact permissions depend on which services you scan, but a good starting point is attaching the `ReadOnlyAccess` managed policy to your IAM role or user.
+
+For a tighter policy, here are the core permissions used per service:
+
+| Service | Permissions needed |
+|---------|-------------------|
+| Lambda | `lambda:ListFunctions`, `lambda:ListEventSourceMappings` |
+| API Gateway | `apigateway:GET` |
+| SQS | `sqs:ListQueues`, `sqs:GetQueueAttributes` |
+| SNS | `sns:ListTopics`, `sns:ListSubscriptions` |
+| EventBridge | `events:ListRules`, `events:ListTargetsByRule` |
+| DynamoDB | `dynamodb:ListTables`, `dynamodb:DescribeTable` |
+| EC2 | `ec2:DescribeInstances` |
+| ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices` |
+| S3 | `s3:ListAllMyBuckets`, `s3:GetBucketNotification` |
+| RDS | `rds:DescribeDBInstances`, `rds:DescribeDBClusters` |
+| Step Functions | `states:ListStateMachines` |
+| Kinesis | `kinesis:ListStreams` |
+| IAM | `iam:ListRoles` |
+| Cognito | `cognito-idp:ListUserPools` |
+| CloudFront | `cloudfront:ListDistributions` |
+| ElastiCache | `elasticache:DescribeCacheClusters` |
+| Glue | `glue:ListJobs` |
+| AppSync | `appsync:ListGraphqlApis` |
+| Generic fallback | `tag:GetResources` |
+| All scans | `sts:GetCallerIdentity` (to resolve account ID) |
+
+---
+
+## Using the UI
+
+### Scanning
+
+- **Services dropdown** — select one or more AWS services to scan. Only selected services are scanned.
+- **Region selector** — pick the AWS region. CloudFront is global and always uses `us-east-1` regardless.
+- **Mode** — Quick scans list resources only. Deep scans describe each resource individually (slower but richer data).
+- **Scan button** — starts the scan. Disabled until at least one service is selected.
+- **Stop button** — cancels a running scan. Resources already discovered are kept on the graph.
+
+### Graph canvas
+
+- **Pan** — click and drag on empty canvas space
+- **Zoom** — scroll wheel or pinch on trackpad
+- **Select node** — click a node to open the inspector panel on the right
+- **Fit to screen** — double-click on empty canvas space
+- **Blast radius** — when a node is selected, connected upstream/downstream nodes are highlighted
+
+### Inspector panel
+
+Opens when you click a node. Shows:
+- Resource ID and service type
+- All attributes returned by the AWS API (region, ARN, state, tags, etc.)
+- Incoming and outgoing edges (what calls this, what this calls)
+
+### Search
+
+The search bar in the left sidebar filters nodes by ID or label. Results are capped at 120 — refine your search if truncated.
+
+### Layout
+
+Switch between three graph layout modes from the layout dropdown in the top bar:
+- **Circular** — default, nodes arranged in service clusters
+- **Flow** — hierarchical top-to-bottom data flow
+- **Swimlane** — grouped by service in horizontal lanes
+
+### Isolated nodes
+
+By default, nodes with no edges are hidden (they have no relationships to other scanned services). Toggle **Show isolated** in the top bar to reveal them. If all nodes are isolated (e.g. you scanned only SQS), they are shown automatically.
+
+---
+
+## SSH tunnel workflow
+
+If awsflow is running on a remote server and you want to view the UI in your local browser:
+
+```bash
+# On the remote server (no browser)
+awsflow --no-browser --port 8080
+
+# In a separate terminal on your local machine
+ssh -L 8080:localhost:8080 user@remote-host
+
+# Open locally
+open http://localhost:8080
+```
+
+Or use `--print-url` to get the URL in a script:
+
+```bash
+URL=$(ssh user@remote-host "awsflow --print-url --port 8080")
+# start tunnel, then open $URL
+```
+
+---
+
+## Caching
+
+Completed scans are cached for 5 minutes (quick mode) or 30 minutes (deep mode). If you scan the same region and services again within the cache window, the existing results are returned immediately without re-scanning. Use **Force refresh** (scan with the same parameters a second time after disabling cache, or add a `force_refresh: true` in the API payload) to bypass the cache.
+
+---
+
+## Troubleshooting
+
+**Port already in use**
+```
+Error: Port 8080 is already in use. Try a different port with --port <number>.
+```
+Another process is using the port. Run `awsflow --port 9000` or find and stop the conflicting process.
+
+---
+
+**AWS credentials not found**
+```
+AWS credentials were not found. Set AWS credentials or run saml2aws login before scanning.
+```
+Run `aws configure`, `aws sso login`, or `saml2aws login` first, then retry.
+
+---
+
+**Session expired**
+```
+Your AWS session has expired. Refresh credentials and try again.
+```
+Re-authenticate with your SSO/SAML provider, then rescan.
+
+---
+
+**Graph is empty after scanning**
+- Check that resources actually exist in the selected region
+- Some services (like SQS, SNS) don't have edges to other services by default — toggle **Show isolated** to reveal them
+- The generic fallback scanner only finds resources that have AWS tags. If your resources are untagged, use a dedicated scanner service from the list above
+
+---
+
+**Scan completes but graph takes a while to appear**
+The graph is fetched after the scan job transitions to `completed`. If your account has many resources, the final graph payload can be large. Wait a few seconds after the status bar shows "completed".

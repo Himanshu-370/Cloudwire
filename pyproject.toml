@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awsflow"
+version = "0.1.0"
+description = "Scan and visualize your AWS infrastructure as an interactive graph"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+keywords = ["aws", "cloud", "visualization", "graph", "infrastructure"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "boto3>=1.37",
+    "botocore>=1.37",
+    "networkx>=3.4",
+    "pydantic>=2.11",
+    "click>=8.1",
+]
+
+[project.scripts]
+awsflow = "awsflow.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/awsflow"
+Issues = "https://github.com/yourusername/awsflow/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["awsflow*"]
+
+[tool.setuptools.package-data]
+awsflow = ["static/**/*", "static/*"]

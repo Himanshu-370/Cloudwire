@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import { normalizeGraph } from "../lib/graphTransforms";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// All requests are same-origin in production (served by the awsflow CLI).
+// In dev, vite.config.js proxies /api/* to http://localhost:8000.
+const API_PREFIX = "/api";
 
 // Auto-abandon a hung scan after 10 minutes
 const MAX_SCAN_MS = 10 * 60 * 1000;
@@ -49,11 +51,11 @@ async function parseErrorResponse(response, fallbackMessage) {
 async function requestJson(path, options = {}, fallbackMessage = "API request failed") {
   let response;
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, options);
+    response = await fetch(`${API_PREFIX}${path}`, options);
   } catch (error) {
     // Only treat network-level TypeErrors as "backend unreachable"
     if (error instanceof TypeError && /failed to fetch|network/i.test(error.message)) {
-      throw new Error(`Unable to reach the backend at ${API_BASE_URL}. Start the FastAPI service and try again.`);
+      throw new Error("Unable to reach the backend. If running in development, start uvicorn on port 8000.");
     }
     throw error;
   }
@@ -100,7 +102,7 @@ export function useScanPolling() {
     return requestJson(`/scan/${encodeURIComponent(jobId)}`, {}, "Unable to fetch scan status");
   }, []);
 
-  // FIX #16/#17: fetchJobGraph now accepts a token and only updates state if still valid
+  // fetchJobGraph accepts a token and only updates state if still valid
   const fetchJobGraph = useCallback(async (jobId, token) => {
     const payload = await requestJson(
       `/scan/${encodeURIComponent(jobId)}/graph`,

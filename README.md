@@ -1,97 +1,156 @@
-# AWS Flow Visualizer
+# awsflow
 
-Fullstack app to scan AWS resources and visualize dependencies as an interactive graph.
+Scan your AWS account and visualize resource dependencies as an interactive graph — directly in your browser, running entirely on your local machine.
 
-## Stack
+No data leaves your system. AWS credentials never leave your terminal. The graph is built locally using your existing credential chain (`~/.aws/credentials`, `aws sso login`, `saml2aws`, `aws-vault` — all work out of the box).
 
-- Backend: FastAPI + boto3 + networkx
-- Frontend: React (Vite) + Tailwind + React Flow
+---
 
-## Features
-
-- AWS graph scan for:
-  - API Gateway
-  - Lambda
-  - SQS
-  - EventBridge
-  - DynamoDB
-- Flexible scanning for other services via generic tagged-resource discovery
-- Graph endpoints:
-  - `POST /scan` (async job create)
-  - `GET /scan/{job_id}` (progress/status)
-  - `GET /scan/{job_id}/graph` (partial/final graph)
-  - `POST /scan/{job_id}/stop` (cancel running scan)
-  - `GET /graph` (latest completed graph)
-  - `GET /resource/{id}?job_id=...` (optional job-scoped lookup)
-- Frontend:
-  - Neon hacker dark theme
-  - Interactive graph visualization
-  - Search resources
-  - Click node details panel
-  - Downstream dependency highlighting
-
-## Backend Setup
+## Install
 
 ```bash
-cd backend
+pip install awsflow
+awsflow
+```
+
+That's it. The browser opens automatically at `http://localhost:8080`.
+
+> **Requirements:** Python 3.9+ and valid AWS credentials configured locally.
+
+---
+
+## What it looks like
+
+- Dark hacker-aesthetic graph canvas
+- Nodes represent AWS resources — Lambda functions, SQS queues, API Gateways, RDS instances, S3 buckets, and more
+- Edges represent relationships and data flow between resources
+- Click any node to inspect its attributes and connected resources
+- Search, filter by service, highlight upstream/downstream blast radius
+
+---
+
+## Supported services
+
+| Service | Scanner |
+|---------|---------|
+| API Gateway | Dedicated |
+| Lambda | Dedicated (with state) |
+| SQS | Dedicated |
+| SNS | Dedicated |
+| EventBridge | Dedicated |
+| DynamoDB | Dedicated (with state) |
+| EC2 | Dedicated (with state) |
+| ECS | Dedicated |
+| S3 | Dedicated |
+| RDS | Dedicated (with state) |
+| Step Functions | Dedicated |
+| Kinesis | Dedicated |
+| IAM | Dedicated |
+| Cognito | Dedicated |
+| CloudFront | Dedicated (with state) |
+| ElastiCache | Dedicated (with state) |
+| Glue | Dedicated |
+| AppSync | Dedicated |
+| Everything else | Generic (tagged resources only) |
+
+---
+
+## Project structure
+
+```
+awsflow/                        # Python package (the distributable unit)
+├── __init__.py                 # Package version
+├── cli.py                      # `awsflow` CLI entry point (click)
+├── static/                     # Built React app (populated by `make build`)
+│   ├── index.html
+│   └── assets/
+└── app/                        # FastAPI backend
+    ├── main.py                 # App factory, API routes (/api/*), static serving
+    ├── models.py               # Pydantic request/response models
+    ├── scanner.py              # boto3 AWS scanner — one function per service
+    ├── scan_jobs.py            # Async job store with progress tracking
+    └── graph_store.py          # networkx graph with thread-safe mutations
+
+frontend/                       # React + Vite source (compiled into awsflow/static/)
+├── src/
+│   ├── pages/AwsFlowPage.jsx   # Main page — orchestrates all state
+│   ├── components/
+│   │   ├── graph/              # GraphCanvas, GraphNode, GraphEdge, Minimap, Legend
+│   │   └── layout/             # TopBar, ServiceSidebar, InspectorPanel
+│   ├── hooks/
+│   │   ├── useScanPolling.js   # Scan lifecycle, polling, graph data state
+│   │   └── useGraphViewport.js # Pan/zoom viewport state
+│   ├── lib/
+│   │   ├── graphTransforms.js  # Layout algorithms (circular, flow, swimlane)
+│   │   ├── serviceVisuals.jsx  # Service icon + color map
+│   │   └── awsRegions.js       # AWS region list
+│   └── styles/graph.css        # All UI styles
+├── vite.config.js              # base: "./", outDir: ../awsflow/static, dev proxy
+└── package.json
+
+.github/workflows/publish.yml   # CI: build + publish to PyPI on version tag push
+pyproject.toml                  # Package metadata, dependencies, entry point
+Makefile                        # make build / make dev / make clean
+.python-version                 # Pins Python 3.11 for consistent builds
+```
+
+---
+
+## Contributing
+
+### Prerequisites
+
+- Python 3.9+ (3.11 recommended)
+- Node.js 18+
+- AWS credentials configured (any method)
+
+### Set up the dev environment
+
+```bash
+git clone https://github.com/yourusername/awsflow
+cd awsflow
+
+# Python
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+pip install -e .
+
+# Frontend
+cd frontend && npm install
 ```
 
-The API expects AWS credentials in your environment (for example via AWS CLI profile, env vars, or instance role).
-
-## Frontend Setup
+### Run in development mode
 
 ```bash
-cd frontend
-npm install
-npm run dev
+make dev
 ```
 
-Frontend runs on `http://localhost:5173` and calls backend at `http://localhost:8000` by default.
+This starts the FastAPI backend on `:8000` (with `--reload`) and the Vite dev server on `:5173` concurrently. The Vite dev server proxies all `/api/*` requests to the backend — no CORS config needed.
 
-Set a custom backend URL with:
+### Making changes
 
-```bash
-VITE_API_BASE_URL=http://localhost:8000
-```
+| Area | Where to edit |
+|------|--------------|
+| Add a new AWS service scanner | `awsflow/app/scanner.py` → add a `_scan_<service>` method and register it in `self.service_scanners` |
+| Change graph layout | `frontend/src/lib/graphTransforms.js` |
+| Add a new UI component | `frontend/src/components/` |
+| Change API routes | `awsflow/app/main.py` — all routes are under the `/api` prefix |
+| Change CLI options | `awsflow/cli.py` |
 
-## API Usage
+### Before opening a PR
 
-Start a scan:
+- Run a scan against a real (or mocked) AWS account and confirm the graph renders
+- Make sure `make build` completes without errors
+- Keep PRs focused — one feature or fix per PR
 
-```bash
-curl -X POST http://localhost:8000/scan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "region":"us-east-1",
-    "services":["apigateway","lambda","sqs","eventbridge","dynamodb"],
-    "mode":"quick"
-  }'
-```
+### Code style
 
-Check job status:
+- Python: standard library imports first, then third-party, then local. No formatter enforced yet.
+- JavaScript: no linter enforced yet. Match the style of the surrounding file.
 
-```bash
-curl http://localhost:8000/scan/<job_id>
-```
+---
 
-Get job graph snapshot (partial while running, full when complete):
+## Links
 
-```bash
-curl http://localhost:8000/scan/<job_id>/graph
-```
-
-Stop a running scan:
-
-```bash
-curl -X POST http://localhost:8000/scan/<job_id>/stop
-```
-
-Get one resource scoped to a job:
-
-```bash
-curl "http://localhost:8000/resource/lambda:arn%3Aaws%3Alambda%3Aus-east-1%3A123456789012%3Afunction%3Amy-fn?job_id=<job_id>"
-```
+- [Usage & setup guide](docs/USAGE.md)
+- [Release guide for maintainers](docs/RELEASING.md)
