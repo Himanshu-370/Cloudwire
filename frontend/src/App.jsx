@@ -1,5 +1,5 @@
 import React from "react";
-import AwsFlowPage from "./pages/AwsFlowPage";
+import CloudWirePage from "./pages/CloudWirePage";
 import "./styles/graph.css";
 
 class ErrorBoundary extends React.Component {
@@ -13,7 +13,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.error("CloudGraph render error:", error, info);
+    console.error("CloudWire render error:", error, info);
   }
 
   render() {
@@ -53,7 +53,7 @@ class ErrorBoundary extends React.Component {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AwsFlowPage />
+      <CloudWirePage />
     </ErrorBoundary>
   );
 }

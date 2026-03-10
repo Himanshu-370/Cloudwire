@@ -1,6 +1,6 @@
 # Usage Guide
 
-Everything you need to install, configure, and use awsflow.
+Everything you need to install, configure, and use cloudwire.
 
 ---
 
@@ -15,13 +15,13 @@ Everything you need to install, configure, and use awsflow.
 ## Installation
 
 ```bash
-pip install awsflow
+pip install cloudwire
 ```
 
 If you use `pipx` (recommended — keeps the tool isolated from your project environments):
 
 ```bash
-pipx install awsflow
+pipx install cloudwire
 ```
 
 ---
@@ -29,7 +29,7 @@ pipx install awsflow
 ## Quick start
 
 ```bash
-awsflow
+cloudwire
 ```
 
 The server starts on `http://localhost:8080` and your browser opens automatically.
@@ -44,7 +44,7 @@ The server starts on `http://localhost:8080` and your browser opens automaticall
 ## CLI reference
 
 ```
-awsflow [OPTIONS]
+cloudwire [OPTIONS]
 ```
 
 | Option | Default | Description |
@@ -62,19 +62,19 @@ awsflow [OPTIONS]
 
 ```bash
 # Use a specific AWS profile
-awsflow --profile production
+cloudwire --profile production
 
 # Use a specific region
-awsflow --region eu-west-1
+cloudwire --region eu-west-1
 
 # Custom port (if 8080 is taken)
-awsflow --port 9000
+cloudwire --port 9000
 
 # Start without auto-opening the browser
-awsflow --no-browser
+cloudwire --no-browser
 
 # SSH tunnel workflow — print the URL and open it locally
-awsflow --print-url
+cloudwire --print-url
 # → http://localhost:8080
 ```
 
@@ -82,7 +82,7 @@ awsflow --print-url
 
 ## AWS credentials
 
-awsflow reads credentials from the standard AWS credential chain in this order:
+cloudwire reads credentials from the standard AWS credential chain in this order:
 
 1. **Environment variables** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`
 2. **AWS CLI profiles** — `~/.aws/credentials` and `~/.aws/config`
@@ -93,23 +93,23 @@ This means any tool that writes to the standard credential files works automatic
 ```bash
 # AWS SSO
 aws sso login --profile my-profile
-awsflow --profile my-profile
+cloudwire --profile my-profile
 
 # saml2aws
 saml2aws login
-awsflow
+cloudwire
 
 # aws-vault
-aws-vault exec my-profile -- awsflow
+aws-vault exec my-profile -- cloudwire
 
 # Standard AWS CLI profile
 aws configure --profile staging
-awsflow --profile staging
+cloudwire --profile staging
 ```
 
 ### Minimum IAM permissions
 
-awsflow only needs **read** access. The exact permissions depend on which services you scan, but a good starting point is attaching the `ReadOnlyAccess` managed policy to your IAM role or user.
+cloudwire only needs **read** access. The exact permissions depend on which services you scan, but a good starting point is attaching the `ReadOnlyAccess` managed policy to your IAM role or user.
 
 For a tighter policy, here are the core permissions used per service:
 
@@ -182,11 +182,11 @@ By default, nodes with no edges are hidden (they have no relationships to other 
 
 ## SSH tunnel workflow
 
-If awsflow is running on a remote server and you want to view the UI in your local browser:
+If cloudwire is running on a remote server and you want to view the UI in your local browser:
 
 ```bash
 # On the remote server (no browser)
-awsflow --no-browser --port 8080
+cloudwire --no-browser --port 8080
 
 # In a separate terminal on your local machine
 ssh -L 8080:localhost:8080 user@remote-host
@@ -198,7 +198,7 @@ open http://localhost:8080
 Or use `--print-url` to get the URL in a script:
 
 ```bash
-URL=$(ssh user@remote-host "awsflow --print-url --port 8080")
+URL=$(ssh user@remote-host "cloudwire --print-url --port 8080")
 # start tunnel, then open $URL
 ```
 
@@ -216,7 +216,7 @@ Completed scans are cached for 5 minutes (quick mode) or 30 minutes (deep mode).
 ```
 Error: Port 8080 is already in use. Try a different port with --port <number>.
 ```
-Another process is using the port. Run `awsflow --port 9000` or find and stop the conflicting process.
+Another process is using the port. Run `cloudwire --port 9000` or find and stop the conflicting process.
 
 ---
 

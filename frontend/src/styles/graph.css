@@ -1,4 +1,4 @@
-.aws-flow-page {
+.cloudwire-page {
   height: 100vh;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -170,7 +170,7 @@
   opacity: 0.45;
 }
 
-.aws-flow-layout {
+.cloudwire-layout {
   display: flex;
   min-height: 0;
   height: 100%;
@@ -745,13 +745,13 @@
 }
 
 @media (max-width: 1440px) {
-  .aws-flow-layout {
+  .cloudwire-layout {
     gap: 0;
   }
 }
 
 @media (max-width: 1200px) {
-  .aws-flow-layout {
+  .cloudwire-layout {
     display: grid;
     grid-template-columns: 200px minmax(0, 1fr);
     position: relative;

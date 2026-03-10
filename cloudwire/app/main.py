@@ -36,7 +36,7 @@ from .scanner import AWSGraphScanner, ScanCancelledError, ScanExecutionOptions
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Static-file directory (awsflow/static/ relative to this package)
+# Static-file directory (cloudwire/static/ relative to this package)
 # ---------------------------------------------------------------------------
 _STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -178,7 +178,7 @@ async def lifespan(_app: FastAPI):
     job_store.shutdown()
 
 
-app = FastAPI(title="AWS Flow Visualizer API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="CloudWire API", version="0.1.0", lifespan=lifespan)
 
 # ---------------------------------------------------------------------------
 # Exception handlers
@@ -284,7 +284,7 @@ api = APIRouter(prefix="/api")
 
 @api.get("/health")
 def health() -> Dict[str, Any]:
-    return {"service": "awsflow", "status": "ok"}
+    return {"service": "cloudwire", "status": "ok"}
 
 
 @api.get("/graph", response_model=GraphResponse, responses={500: {"model": APIErrorResponse}})

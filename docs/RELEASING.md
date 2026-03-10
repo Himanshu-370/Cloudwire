@@ -1,6 +1,6 @@
 # Release Guide
 
-How to build, test, and publish a new version of awsflow to PyPI.
+How to build, test, and publish a new version of cloudwire to PyPI.
 
 ---
 
@@ -20,14 +20,14 @@ GitHub Actions handles the build (frontend + wheel) and the upload automatically
 
 ### 1. Configure PyPI trusted publishing
 
-awsflow uses OIDC trusted publishing — no API tokens to store or rotate.
+cloudwire uses OIDC trusted publishing — no API tokens to store or rotate.
 
 1. Create an account on [pypi.org](https://pypi.org) if you don't have one
 2. Go to **Account settings → Publishing**
 3. Click **Add a new publisher** and fill in:
-   - **PyPI project name:** `awsflow`
+   - **PyPI project name:** `cloudwire`
    - **GitHub owner:** your GitHub username or org
-   - **Repository name:** `awsflow`
+   - **Repository name:** `cloudwire`
    - **Workflow filename:** `publish.yml`
    - **Environment name:** `pypi`
 4. Save
@@ -52,7 +52,7 @@ Work on a branch or directly on `main`. All your code changes, bug fixes, and ne
 
 Version must be updated in exactly two places:
 
-**`awsflow/__init__.py`**
+**`cloudwire/__init__.py`**
 ```python
 __version__ = "0.2.0"   # was "0.1.0"
 ```
@@ -62,12 +62,12 @@ __version__ = "0.2.0"   # was "0.1.0"
 version = "0.2.0"   # was "0.1.0"
 ```
 
-Both must match. The wheel filename, `awsflow --version`, and the PyPI listing all read from these.
+Both must match. The wheel filename, `cloudwire --version`, and the PyPI listing all read from these.
 
 ### Step 3 — Commit the version bump
 
 ```bash
-git add awsflow/__init__.py pyproject.toml
+git add cloudwire/__init__.py pyproject.toml
 git commit -m "chore: bump version to 0.2.0"
 git push
 ```
@@ -96,9 +96,9 @@ The whole pipeline takes about 2–3 minutes. When it's green, the new version i
 ### Step 6 — Verify the release
 
 ```bash
-pip install --upgrade awsflow
-awsflow --version
-# awsflow, version 0.2.0
+pip install --upgrade cloudwire
+cloudwire --version
+# cloudwire, version 0.2.0
 ```
 
 ---
@@ -124,7 +124,7 @@ git tag v1.0.0-rc1    # release candidate
 git tag v1.0.0-beta1  # beta
 ```
 
-PyPI accepts these as pre-releases — users only get them if they explicitly `pip install awsflow==1.0.0rc1` or use `--pre`.
+PyPI accepts these as pre-releases — users only get them if they explicitly `pip install cloudwire==1.0.0rc1` or use `--pre`.
 
 ---
 
@@ -187,10 +187,10 @@ git push
 
 ## What's in the wheel
 
-The published wheel (`awsflow-X.Y.Z-py3-none-any.whl`) contains:
+The published wheel (`cloudwire-X.Y.Z-py3-none-any.whl`) contains:
 
 ```
-awsflow/
+cloudwire/
 ├── __init__.py
 ├── cli.py
 ├── app/
@@ -214,9 +214,9 @@ The wheel is `py3-none-any` — pure Python, platform-independent. Users on macO
 
 ```bash
 make build       # full build: npm run build + python -m build
-make frontend    # frontend only: npm run build → awsflow/static/
+make frontend    # frontend only: npm run build → cloudwire/static/
 make package     # Python wheel only (run make frontend first)
-make clean       # remove awsflow/static/, dist/, build/, *.egg-info/
+make clean       # remove cloudwire/static/, dist/, build/, *.egg-info/
 make install-dev # pip install -e . (editable install for local development)
 make dev         # start backend (:8000) and frontend dev server (:5173)
 ```
@@ -225,12 +225,12 @@ make dev         # start backend (:8000) and frontend dev server (:5173)
 
 ## Checklist before every release
 
-- [ ] Version bumped in `awsflow/__init__.py` and `pyproject.toml`
+- [ ] Version bumped in `cloudwire/__init__.py` and `pyproject.toml`
 - [ ] Both version strings match the tag you're about to push
 - [ ] `make build` completes without errors locally
-- [ ] Installed the wheel locally and confirmed `awsflow --version` is correct
+- [ ] Installed the wheel locally and confirmed `cloudwire --version` is correct
 - [ ] Did a quick scan against a real or test AWS account and the graph renders
 - [ ] Committed and pushed all changes to `main`
 - [ ] Tag pushed: `git push origin vX.Y.Z`
 - [ ] GitHub Actions pipeline is green
-- [ ] `pip install --upgrade awsflow` on a clean machine shows the new version
+- [ ] `pip install --upgrade cloudwire` on a clean machine shows the new version

@@ -1,4 +1,4 @@
-"""CLI entry point for AWS Flow Visualizer."""
+"""CLI entry point for CloudWire."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _port_is_available(host: str, port: int) -> bool:
 @click.option("--region", default="us-east-1", show_default=True, envvar="AWS_DEFAULT_REGION", help="Default AWS region.")
 @click.option("--no-browser", is_flag=True, default=False, help="Do not open the browser automatically.")
 @click.option("--print-url", is_flag=True, default=False, help="Print the URL to stdout and exit (useful for SSH tunnels).")
-@click.version_option(version=__version__, prog_name="awsflow")
+@click.version_option(version=__version__, prog_name="cloudwire")
 def main(port: int, host: str, profile: str | None, region: str, no_browser: bool, print_url: bool) -> None:
     """Scan and visualize your AWS infrastructure as an interactive graph.
 
@@ -42,11 +42,11 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
 
     \b
     Examples:
-      awsflow                              # use default AWS profile
-      awsflow --profile staging            # use a named profile
-      awsflow --region eu-west-1           # override region
-      awsflow --port 9000 --no-browser     # custom port, skip auto-open
-      awsflow --print-url                  # print URL only (SSH tunnel use case)
+      cloudwire                              # use default AWS profile
+      cloudwire --profile staging            # use a named profile
+      cloudwire --region eu-west-1           # override region
+      cloudwire --port 9000 --no-browser     # custom port, skip auto-open
+      cloudwire --print-url                  # print URL only (SSH tunnel use case)
     """
     url = f"http://localhost:{port}"
 
@@ -68,7 +68,7 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
         )
 
     click.echo("")
-    click.echo(f"  awsflow {__version__}")
+    click.echo(f"  cloudwire {__version__}")
     click.echo(f"  Running at  →  {url}")
     click.echo("  Press Ctrl+C to stop.\n")
 
@@ -77,7 +77,7 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
 
     try:
         uvicorn.run(
-            "awsflow.app.main:app",
+            "cloudwire.app.main:app",
             host=host,
             port=port,
             log_level="warning",

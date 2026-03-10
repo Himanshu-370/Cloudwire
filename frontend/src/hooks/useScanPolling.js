@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import { normalizeGraph } from "../lib/graphTransforms";
 
-// All requests are same-origin in production (served by the awsflow CLI).
+// All requests are same-origin in production (served by the cloudwire CLI).
 // In dev, vite.config.js proxies /api/* to http://localhost:8000.
 const API_PREFIX = "/api";
 

@@ -260,7 +260,7 @@ export function TopBar({
               <circle cx="11" cy="11" r="2" fill="#FF9900" />
             </svg>
           </span>
-          <span className="topbar-brand">CloudGraph</span>
+          <span className="topbar-brand">CloudWire</span>
         </div>
         <div className="topbar-divider" />
         <span className="topbar-kicker">AWS RESOURCE VISUALIZER</span>

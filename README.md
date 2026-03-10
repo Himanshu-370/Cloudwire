@@ -1,4 +1,4 @@
-# awsflow
+# cloudwire
 
 Scan your AWS account and visualize resource dependencies as an interactive graph — directly in your browser, running entirely on your local machine.
 
@@ -9,8 +9,8 @@ No data leaves your system. AWS credentials never leave your terminal. The graph
 ## Install
 
 ```bash
-pip install awsflow
-awsflow
+pip install cloudwire
+cloudwire
 ```
 
 That's it. The browser opens automatically at `http://localhost:8080`.
@@ -58,9 +58,9 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 ## Project structure
 
 ```
-awsflow/                        # Python package (the distributable unit)
+cloudwire/                        # Python package (the distributable unit)
 ├── __init__.py                 # Package version
-├── cli.py                      # `awsflow` CLI entry point (click)
+├── cli.py                      # `cloudwire` CLI entry point (click)
 ├── static/                     # Built React app (populated by `make build`)
 │   ├── index.html
 │   └── assets/
@@ -71,9 +71,9 @@ awsflow/                        # Python package (the distributable unit)
     ├── scan_jobs.py            # Async job store with progress tracking
     └── graph_store.py          # networkx graph with thread-safe mutations
 
-frontend/                       # React + Vite source (compiled into awsflow/static/)
+frontend/                       # React + Vite source (compiled into cloudwire/static/)
 ├── src/
-│   ├── pages/AwsFlowPage.jsx   # Main page — orchestrates all state
+│   ├── pages/CloudWirePage.jsx # Main page — orchestrates all state
 │   ├── components/
 │   │   ├── graph/              # GraphCanvas, GraphNode, GraphEdge, Minimap, Legend
 │   │   └── layout/             # TopBar, ServiceSidebar, InspectorPanel
@@ -85,7 +85,7 @@ frontend/                       # React + Vite source (compiled into awsflow/sta
 │   │   ├── serviceVisuals.jsx  # Service icon + color map
 │   │   └── awsRegions.js       # AWS region list
 │   └── styles/graph.css        # All UI styles
-├── vite.config.js              # base: "./", outDir: ../awsflow/static, dev proxy
+├── vite.config.js              # base: "./", outDir: ../cloudwire/static, dev proxy
 └── package.json
 
 .github/workflows/publish.yml   # CI: build + publish to PyPI on version tag push
@@ -107,8 +107,8 @@ Makefile                        # make build / make dev / make clean
 ### Set up the dev environment
 
 ```bash
-git clone https://github.com/yourusername/awsflow
-cd awsflow
+git clone https://github.com/hisingh_gwre/cloudwire
+cd cloudwire
 
 # Python
 python3 -m venv .venv
@@ -131,11 +131,11 @@ This starts the FastAPI backend on `:8000` (with `--reload`) and the Vite dev se
 
 | Area | Where to edit |
 |------|--------------|
-| Add a new AWS service scanner | `awsflow/app/scanner.py` → add a `_scan_<service>` method and register it in `self.service_scanners` |
+| Add a new AWS service scanner | `cloudwire/app/scanner.py` → add a `_scan_<service>` method and register it in `self.service_scanners` |
 | Change graph layout | `frontend/src/lib/graphTransforms.js` |
 | Add a new UI component | `frontend/src/components/` |
-| Change API routes | `awsflow/app/main.py` — all routes are under the `/api` prefix |
-| Change CLI options | `awsflow/cli.py` |
+| Change API routes | `cloudwire/app/main.py` — all routes are under the `/api` prefix |
+| Change CLI options | `cloudwire/cli.py` |
 
 ### Before opening a PR
 

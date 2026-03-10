@@ -1,7 +1,7 @@
-# awsFlow Project Memory
+# CloudWire Project Memory
 
 ## Project Overview
-**awsFlow** (branded "CloudGraph") is an AWS resource visualization tool. It scans an AWS account and renders an interactive graph of services and their relationships.
+**CloudWire** is an AWS resource visualization tool. It scans an AWS account and renders an interactive graph of services and their relationships.
 
 ## Architecture
 - **Backend**: Python FastAPI (`backend/app/`) — scans AWS using boto3, builds a directed graph, exposes REST API
@@ -45,7 +45,7 @@
 ## Frontend Structure
 
 ### Files
-- `pages/AwsFlowPage.jsx` — top-level page; owns all state, computes layout, orchestrates subcomponents
+- `pages/CloudWirePage.jsx` — top-level page; owns all state, computes layout, orchestrates subcomponents
 - `hooks/useScanPolling.js` — scan lifecycle: POST /scan → poll /scan/{id} with adaptive delays (1s/2s/3s)
 - `hooks/useGraphViewport.js` — pan/zoom viewport state; fit-to-nodes, center-node, zoom-at-point
 - `lib/graphTransforms.js` — layout algorithms: `layoutHybridGraph` (circular/flow), `splitByConnectivity`, `buildLevels`, `filterGraphByRegion`, `countServices`
@@ -60,7 +60,7 @@
 - `components/layout/ServiceSidebar.jsx` — service filter pills, stats, view controls, resource search list
 - `components/layout/InspectorPanel.jsx` — right panel: selected node metadata + incoming/outgoing connections
 
-### Layout Pipeline (AwsFlowPage)
+### Layout Pipeline (CloudWirePage)
 1. Raw graph from API → `normalizeGraph` (service name aliases)
 2. `filterGraphByRegion` — filter by selected region
 3. Filter by hidden services → `visibleNodes` / `visibleEdges`
@@ -95,7 +95,7 @@
 - `GraphEdge.jsx`: `animated` (animateMotion pulse), `pathHighlight` (bright white path), `blastEdge` ('up'=orange/'down'=cyan)
 - `GraphNode.jsx`: `role` badge (TRIGGER/PROC/STORE/QUEUE at scale≥0.55), `blastHighlight` ring (orange=upstream, cyan=downstream), educational tooltip on hover
 - `GraphCanvas.jsx`: accepts `animated`, `pathNodeIds`, `pathEdgeIds`, `blastRadius`; `nodeRoles` memo; `exportSvg()` in imperative handle
-- `AwsFlowPage.jsx`: pathFinderMode, pathSource, foundPath, blastRadiusMode, showFlowAnimation, showSummary state; swimlane layout mode; summary panel; patterns panel; graph toolbar (SUMMARY / ▶ FLOW / PATH FINDER / EXPORT SVG); focus bar adds BLAST RADIUS button
+- `CloudWirePage.jsx`: pathFinderMode, pathSource, foundPath, blastRadiusMode, showFlowAnimation, showSummary state; swimlane layout mode; summary panel; patterns panel; graph toolbar (SUMMARY / ▶ FLOW / PATH FINDER / EXPORT SVG); focus bar adds BLAST RADIUS button
 - `TopBar.jsx`: layout cycles circular → flow → swimlane
 - `graph.css`: all font sizes increased ~2px; swimlane lane tones; graph toolbar; summary panel; path finder styles
 - **Font sizes**: 9px→11px, 10px→12px, 11px→13px, 12px→14px, 13px→15px throughout
@@ -105,7 +105,7 @@
 - `Minimap.jsx` created — 180×110 thumbnail with service-colored dots + orange viewport rect; click-to-pan
 - `GraphCanvas.jsx`: exports `ViewportScaleContext`; viewport virtualization (300px buffer culling); Minimap wired via `handleMinimapPan`
 - `GraphNode.jsx`: LOD (scale<0.28 → tiny dot; scale<0.45 → hide labels); cluster node renders dashed circle with count + service name
-- `AwsFlowPage.jsx`: full pipeline — partitionByConnectivity → showIsolated filter → buildClusteredGraph → computeFocusSubgraph → layoutHybridGraph; auto-collapse >8 nodes per service; focus mode bar (1/2/3 hop depth); FOCUS/EXIT FOCUS toggle
+- `CloudWirePage.jsx`: full pipeline — partitionByConnectivity → showIsolated filter → buildClusteredGraph → computeFocusSubgraph → layoutHybridGraph; auto-collapse >8 nodes per service; focus mode bar (1/2/3 hop depth); FOCUS/EXIT FOCUS toggle
 - `ServiceSidebar.jsx`: cluster toggle `⊟`/`⊞` on each service pill; isolated nodes toggle section
 - `graph.css`: minimap styles, focus mode bar + depth/toggle buttons, cluster count text, sidebar cluster/isolated toggle styles
 

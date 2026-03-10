@@ -23,7 +23,7 @@ const DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamod
 
 function loadStoredServices() {
   try {
-    const raw = localStorage.getItem("awsflow_services");
+    const raw = localStorage.getItem("cloudwire_services");
     if (!raw) return DEFAULT_SERVICES;
     // New format: JSON array
     if (raw.trim().startsWith("[")) return JSON.parse(raw);
@@ -35,7 +35,7 @@ function loadStoredServices() {
   }
 }
 
-export default function AwsFlowPage() {
+export default function CloudWirePage() {
   const graphRef = useRef(null);
   const resourceRequestTokenRef = useRef(0);
   const hasAutoCollapsed = useRef(false);
@@ -56,7 +56,7 @@ export default function AwsFlowPage() {
 
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [resourceDetails, setResourceDetails] = useState(null);
-  const [region, setRegion] = useState(() => localStorage.getItem("awsflow_region") || DEFAULT_REGION);
+  const [region, setRegion] = useState(() => localStorage.getItem("cloudwire_region") || DEFAULT_REGION);
   const [selectedServices, setSelectedServices] = useState(loadStoredServices);
   const [scanMode, setScanMode] = useState("quick");
   const [query, setQuery] = useState("");
@@ -97,8 +97,8 @@ export default function AwsFlowPage() {
   useEffect(() => { setLayoutLoading(false); }, [layoutMode]);
 
   // Persist region/services to localStorage
-  useEffect(() => { localStorage.setItem("awsflow_region", region); }, [region]);
-  useEffect(() => { localStorage.setItem("awsflow_services", JSON.stringify(selectedServices)); }, [selectedServices]);
+  useEffect(() => { localStorage.setItem("cloudwire_region", region); }, [region]);
+  useEffect(() => { localStorage.setItem("cloudwire_services", JSON.stringify(selectedServices)); }, [selectedServices]);
 
   // --- Data pipeline ---
 
@@ -331,7 +331,7 @@ export default function AwsFlowPage() {
   }, [pathFinderMode, pathSource, graphNodes, graphEdges]);
 
   return (
-    <div className="aws-flow-page">
+    <div className="cloudwire-page">
       <TopBar
         region={region}
         onRegionChange={setRegion}
@@ -354,7 +354,7 @@ export default function AwsFlowPage() {
         warnings={jobStatus?.warnings || []}
       />
 
-      <div className="aws-flow-layout">
+      <div className="cloudwire-layout">
         <ServiceSidebar
           serviceCounts={serviceCounts}
           hiddenServices={hiddenServices}
