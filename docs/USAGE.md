@@ -159,6 +159,8 @@ For a tighter policy, here are the core permissions used per service:
 - **Select node** — click a node to open the inspector panel on the right
 - **Fit to screen** — double-click on empty canvas space
 - **Blast radius** — when a node is selected, connected upstream/downstream nodes are highlighted
+- **Flow animation** — enabled by default, shows animated particles along edges indicating data flow direction. Toggle with the FLOW button in the toolbar
+- **START/END badges** — entry points (no incoming edges) show a START badge, terminal nodes (no outgoing edges) show an END badge
 
 ### Inspector panel
 
@@ -174,9 +176,9 @@ The search bar in the left sidebar filters nodes by ID or label. Results are cap
 ### Layout
 
 Switch between three graph layout modes from the layout dropdown in the top bar:
-- **Circular** — default, nodes arranged in service clusters
-- **Flow** — hierarchical top-to-bottom data flow
-- **Swimlane** — grouped by service in horizontal lanes
+- **Flow** (default) — sequential left-to-right layout with START/END badges showing data flow direction
+- **Circular** — nodes arranged in service clusters
+- **Swimlane** — grouped by role (triggers, processors, storage, queues) in horizontal lanes
 
 ### Isolated nodes
 
@@ -307,3 +309,13 @@ Re-authenticate with your SSO/SAML provider, then rescan.
 
 **Scan completes but graph takes a while to appear**
 The graph is fetched after the scan job transitions to `completed`. If your account has many resources, the final graph payload can be large. Wait a few seconds after the status bar shows "completed".
+
+---
+
+**Permission errors during scan**
+If your IAM role or user is missing permissions for some services, CloudWire shows them in an expandable panel at the bottom of the page. Permission errors are highlighted in red. Click the panel to see the full list. Grant the missing permissions (see [minimum IAM permissions](#minimum-iam-permissions)) and rescan.
+
+---
+
+**Stale data after page reload**
+Reloading the page starts with a clean slate — no graph, no warnings, no sidebar data. You need to run a new scan to populate the graph. This is by design to avoid showing stale infrastructure data.

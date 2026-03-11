@@ -21,11 +21,13 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 
 ## What it looks like
 
-- Dark hacker-aesthetic graph canvas
-- Nodes represent AWS resources — Lambda functions, SQS queues, API Gateways, RDS instances, S3 buckets, and more
-- Edges represent relationships and data flow between resources
-- Click any node to inspect its attributes and connected resources
-- Search, filter by service, highlight upstream/downstream blast radius
+- Dark hacker-aesthetic graph canvas with animated data flow
+- 24 AWS services with dedicated icons, colors, and role badges
+- Edges represent real relationships — API integrations, event triggers, IAM policy inference, env var references
+- Sequential left-to-right flow layout with START/END badges showing where data enters and exits
+- Click any node to inspect its attributes, incoming/outgoing edges, and resource-specific tooltip
+- Search, filter by service, highlight upstream/downstream blast radius, find shortest path
+- Permission errors surfaced clearly — see exactly which IAM policies are missing
 
 ---
 
@@ -33,24 +35,29 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 
 | Service | Scanner |
 |---------|---------|
-| API Gateway | Dedicated |
-| Lambda | Dedicated (with state) |
-| SQS | Dedicated |
-| SNS | Dedicated |
-| EventBridge | Dedicated |
-| DynamoDB | Dedicated (with state) |
-| EC2 | Dedicated (with state) |
-| ECS | Dedicated |
-| S3 | Dedicated |
-| RDS | Dedicated (with state) |
+| API Gateway | Dedicated — REST + HTTP APIs, multi-service integrations, Cognito authorizers |
+| Lambda | Dedicated — functions, event source mappings, env var references, IAM policy inference |
+| SQS | Dedicated — queues, attributes, dead letter queue edges |
+| SNS | Dedicated — topics and subscriptions |
+| EventBridge | Dedicated — rules and targets |
+| DynamoDB | Dedicated — tables, streams, global table replicas |
+| EC2 | Dedicated — instances, VPC, subnet, security group, instance profile edges |
+| ECS | Dedicated — clusters, services, task definitions, load balancer edges |
+| S3 | Dedicated — buckets and Lambda notification edges |
+| RDS | Dedicated — DB instances and clusters |
 | Step Functions | Dedicated |
 | Kinesis | Dedicated |
-| IAM | Dedicated |
-| Cognito | Dedicated |
-| CloudFront | Dedicated (with state) |
-| ElastiCache | Dedicated (with state) |
-| Glue | Dedicated |
-| AppSync | Dedicated |
+| IAM | Dedicated — roles with full policy resolution |
+| Cognito | Dedicated — user pools |
+| CloudFront | Dedicated — distributions, S3/API GW/ELB origins, Lambda@Edge |
+| Route 53 | Dedicated — hosted zones, record sets, alias target edges |
+| ElastiCache | Dedicated — cache clusters |
+| Redshift | Dedicated — clusters |
+| Glue | Dedicated — jobs, crawlers, triggers |
+| AppSync | Dedicated — GraphQL APIs |
+| Secrets Manager | Dedicated |
+| KMS | Dedicated |
+| ELB | Discovered via CloudFront, Route 53, ECS edges |
 | Everything else | Generic (tagged resources only) |
 
 ---
