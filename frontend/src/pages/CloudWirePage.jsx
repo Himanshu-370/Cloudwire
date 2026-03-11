@@ -35,6 +35,42 @@ function loadStoredServices() {
   }
 }
 
+function WarningsPanel({ warnings }) {
+  const [expanded, setExpanded] = useState(false);
+  const permissionWarnings = warnings.filter((w) => w.startsWith("[permission]"));
+  const otherWarnings = warnings.filter((w) => !w.startsWith("[permission]"));
+
+  return (
+    <div className={`graph-stage-warnings ${expanded ? "expanded" : ""}`}>
+      <button className="graph-warnings-toggle" onClick={() => setExpanded((v) => !v)}>
+        <span>
+          {permissionWarnings.length > 0 && (
+            <span className="graph-warnings-perm-badge">{permissionWarnings.length} permission error{permissionWarnings.length === 1 ? "" : "s"}</span>
+          )}
+          {otherWarnings.length > 0 && (
+            <span className="graph-warnings-other-badge">{otherWarnings.length} warning{otherWarnings.length === 1 ? "" : "s"}</span>
+          )}
+        </span>
+        <span className="graph-warnings-caret">{expanded ? "▼" : "▲"}</span>
+      </button>
+      {expanded && (
+        <ul className="graph-warnings-list">
+          {permissionWarnings.map((w, i) => (
+            <li key={`p-${i}`} className="graph-warnings-item graph-warnings-item--perm">
+              {w.replace("[permission] ", "")}
+            </li>
+          ))}
+          {otherWarnings.map((w, i) => (
+            <li key={`o-${i}`} className="graph-warnings-item">
+              {w}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function CloudWirePage() {
   const graphRef = useRef(null);
   const resourceRequestTokenRef = useRef(0);
@@ -76,7 +112,7 @@ export default function CloudWirePage() {
   const [pathSource, setPathSource] = useState(null);
   const [foundPath, setFoundPath] = useState([]);
   const [blastRadiusMode, setBlastRadiusMode] = useState(false);
-  const [showFlowAnimation, setShowFlowAnimation] = useState(false);
+  const [showFlowAnimation, setShowFlowAnimation] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
 
   // FIX #5/#10: deferred layout change with proper timer cleanup
@@ -563,11 +599,6 @@ export default function CloudWirePage() {
           {resourceError && <div className="graph-stage-error graph-stage-error--resource">{resourceError}</div>}
           {pathNotFound && <div className="graph-stage-error graph-stage-error--info">No directed path found between these nodes.</div>}
 
-          {jobStatus?.warnings?.length > 0 && (
-            <div className="graph-stage-warnings">
-              {jobStatus.warnings.length} scan warning{jobStatus.warnings.length === 1 ? "" : "s"}: {jobStatus.warnings[0]}{jobStatus.warnings.length > 1 ? ` (+${jobStatus.warnings.length - 1} more)` : ""}
-            </div>
-          )}
         </main>
 
         {resourceDetails && (
@@ -584,6 +615,10 @@ export default function CloudWirePage() {
           />
         )}
       </div>
+
+      {jobStatus?.warnings?.length > 0 && (
+        <WarningsPanel warnings={jobStatus.warnings} />
+      )}
     </div>
   );
 }

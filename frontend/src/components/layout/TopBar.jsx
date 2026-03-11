@@ -21,8 +21,11 @@ const SERVICE_COLORS = {
   cloudfront:    "#00e7ff",
   route53:       "#00e7ff",
   appsync:       "#00b4e0",
-  iam:           "#cc6633",
-  cognito:       "#cc6633",
+  iam:              "#cc6633",
+  cognito:          "#cc6633",
+  secretsmanager:   "#cc6633",
+  kms:              "#cc6633",
+  elb:              "#ff9900",
 };
 
 const AWS_SERVICE_GROUPS = [
@@ -66,6 +69,7 @@ const AWS_SERVICE_GROUPS = [
     services: [
       { value: "cloudfront", label: "CloudFront" },
       { value: "route53", label: "Route 53" },
+      { value: "elb", label: "ELB" },
       { value: "appsync", label: "AppSync" },
     ],
   },
@@ -74,6 +78,8 @@ const AWS_SERVICE_GROUPS = [
     services: [
       { value: "iam", label: "IAM" },
       { value: "cognito", label: "Cognito" },
+      { value: "secretsmanager", label: "Secrets Manager" },
+      { value: "kms", label: "KMS" },
     ],
   },
 ];

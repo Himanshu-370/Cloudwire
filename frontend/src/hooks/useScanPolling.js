@@ -261,11 +261,12 @@ export function useScanPolling() {
   }, [clearPolling, currentJobId, fetchJobGraph]);
 
   useEffect(() => {
-    fetchGraph()
-      .catch((bootstrapError) => setError(toMessage(bootstrapError)))
-      .finally(() => setBootstrapLoading(false));
+    // On page load, start clean — don't restore previous scan data
+    setGraphData(EMPTY_GRAPH);
+    setJobStatus(null);
+    setBootstrapLoading(false);
     return () => clearPolling();
-  }, [clearPolling, fetchGraph]);
+  }, [clearPolling]);
 
   return {
     graphData,

@@ -44,27 +44,57 @@ That's all — no secrets to add. The OIDC handshake between GitHub Actions and 
 
 ## Standard release process
 
-### Step 1 — Make your changes
+### Quick release (one command)
+
+If you just want to bump, build, and publish in one step:
+
+```bash
+make release V=0.2.0
+```
+
+This will:
+1. Update the version in `cloudwire/__init__.py` and `pyproject.toml`
+2. Clean previous build artifacts
+3. Build the React frontend into `cloudwire/static/`
+4. Build the Python wheel and sdist
+5. Upload to PyPI via `twine`
+
+After the upload, tag and push:
+
+```bash
+git add cloudwire/__init__.py pyproject.toml
+git commit -m "chore: bump version to 0.2.0"
+git tag v0.2.0
+git push && git push origin v0.2.0
+```
+
+> **Note:** `make release` requires `twine` and `build` (`pip install twine build`) and PyPI credentials configured via `~/.pypirc` or `TWINE_USERNAME`/`TWINE_PASSWORD` env vars.
+
+### Step-by-step release
+
+Use this if you prefer more control over each step.
+
+#### Step 1 — Make your changes
 
 Work on a branch or directly on `main`. All your code changes, bug fixes, and new features go here.
 
-### Step 2 — Bump the version
+#### Step 2 — Bump the version
 
 Version must be updated in exactly two places:
 
 **`cloudwire/__init__.py`**
 ```python
-__version__ = "0.2.0"   # was "0.1.0"
+__version__ = "0.2.0"   # was "0.1.2"
 ```
 
 **`pyproject.toml`**
 ```toml
-version = "0.2.0"   # was "0.1.0"
+version = "0.2.0"   # was "0.1.2"
 ```
 
 Both must match. The wheel filename, `cloudwire --version`, and the PyPI listing all read from these.
 
-### Step 3 — Commit the version bump
+#### Step 3 — Commit the version bump
 
 ```bash
 git add cloudwire/__init__.py pyproject.toml
@@ -72,7 +102,7 @@ git commit -m "chore: bump version to 0.2.0"
 git push
 ```
 
-### Step 4 — Tag and push
+#### Step 4 — Tag and push
 
 ```bash
 git tag v0.2.0
@@ -213,12 +243,13 @@ The wheel is `py3-none-any` — pure Python, platform-independent. Users on macO
 ## Makefile reference
 
 ```bash
-make build       # full build: npm run build + python -m build
-make frontend    # frontend only: npm run build → cloudwire/static/
-make package     # Python wheel only (run make frontend first)
-make clean       # remove cloudwire/static/, dist/, build/, *.egg-info/
-make install-dev # pip install -e . (editable install for local development)
-make dev         # start backend (:8000) and frontend dev server (:5173)
+make release V=X.Y.Z  # bump version, build everything, upload to PyPI
+make build            # full build: npm run build + python -m build
+make frontend         # frontend only: npm run build → cloudwire/static/
+make package          # Python wheel only (run make frontend first)
+make clean            # remove cloudwire/static/, dist/, build/, *.egg-info/
+make install-dev      # pip install -e . (editable install for local development)
+make dev              # start backend (:8000) and frontend dev server (:5173)
 ```
 
 ---

@@ -121,17 +121,21 @@ For a tighter policy, here are the core permissions used per service:
 | SNS | `sns:ListTopics`, `sns:ListSubscriptions` |
 | EventBridge | `events:ListRules`, `events:ListTargetsByRule` |
 | DynamoDB | `dynamodb:ListTables`, `dynamodb:DescribeTable` |
-| EC2 | `ec2:DescribeInstances` |
-| ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices` |
+| EC2 | `ec2:DescribeInstances`, `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups` |
+| ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices`, `ecs:DescribeTaskDefinition` |
 | S3 | `s3:ListAllMyBuckets`, `s3:GetBucketNotification` |
 | RDS | `rds:DescribeDBInstances`, `rds:DescribeDBClusters` |
 | Step Functions | `states:ListStateMachines` |
 | Kinesis | `kinesis:ListStreams` |
-| IAM | `iam:ListRoles` |
+| IAM | `iam:ListRoles`, `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:ListAttachedRolePolicies`, `iam:GetPolicy`, `iam:GetPolicyVersion` |
 | Cognito | `cognito-idp:ListUserPools` |
-| CloudFront | `cloudfront:ListDistributions` |
+| CloudFront | `cloudfront:ListDistributions`, `cloudfront:GetDistribution` |
+| Route 53 | `route53:ListHostedZones`, `route53:ListResourceRecordSets` |
+| Redshift | `redshift:DescribeClusters` |
+| Secrets Manager | `secretsmanager:ListSecrets` |
+| KMS | `kms:ListKeys`, `kms:DescribeKey` |
 | ElastiCache | `elasticache:DescribeCacheClusters` |
-| Glue | `glue:ListJobs` |
+| Glue | `glue:ListJobs`, `glue:GetCrawlers`, `glue:GetTriggers` |
 | AppSync | `appsync:ListGraphqlApis` |
 | Generic fallback | `tag:GetResources` |
 | All scans | `sts:GetCallerIdentity` (to resolve account ID) |
@@ -200,6 +204,64 @@ Or use `--print-url` to get the URL in a script:
 ```bash
 URL=$(ssh user@remote-host "cloudwire --print-url --port 8080")
 # start tunnel, then open $URL
+```
+
+---
+
+## Local development
+
+If you want to run cloudwire from source (for development, testing, or contributing):
+
+### Prerequisites
+
+- Python 3.9+
+- Node.js 18+ and npm
+- AWS credentials configured (see [AWS credentials](#aws-credentials))
+
+### Option 1: Makefile (recommended)
+
+```bash
+# Install Python package in editable mode
+make install-dev
+
+# Run backend + frontend dev servers concurrently
+make dev
+```
+
+This starts the FastAPI backend on `http://localhost:8000` and the Vite frontend dev server on `http://localhost:5173` (with hot reload).
+
+### Option 2: Run manually
+
+```bash
+# Backend
+pip install -e .
+python3 -m uvicorn cloudwire.app.main:app --reload --port 8000
+
+# Frontend (separate terminal)
+cd frontend
+npm install          # first time only
+npm run dev          # http://localhost:5173
+```
+
+### Production-style build
+
+```bash
+make frontend        # builds React app into cloudwire/static/
+cloudwire            # serves both API and UI on http://localhost:8080
+```
+
+### Testing a scan
+
+1. Open the frontend (`http://localhost:5173` in dev mode, or `http://localhost:8080` after `make frontend`)
+2. Select one or more AWS services from the dropdown
+3. Pick a region where you have resources
+4. Choose **Quick** mode for a fast first test, or **Deep** for full resource enrichment
+5. Click **Scan** and watch the graph build in real time
+
+If you don't have AWS resources, you can verify the backend starts correctly by hitting the health endpoint:
+
+```bash
+curl http://localhost:8000/api/health
 ```
 
 ---

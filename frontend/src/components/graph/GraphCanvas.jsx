@@ -65,14 +65,35 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   const [localPositions, setLocalPositions] = useState({});
   const { viewport, setViewport, screenToGraph, zoomAtPoint, fitToNodes, centerNode, resetView } = useGraphViewport();
 
+  const prevLayoutRef = useRef(null);
+
   useEffect(() => {
+    // Detect if the upstream layout changed positions (not just node list).
+    // If any existing node moved, this is a layout switch — reset all positions.
+    const layoutChanged = nodes.some((node) => {
+      const prev = prevLayoutRef.current?.[node.id];
+      return prev && (prev.x !== node.position.x || prev.y !== node.position.y);
+    });
+
     setLocalPositions((previous) => {
+      if (layoutChanged) {
+        // Layout switch: adopt all new positions, discard drag overrides
+        const next = {};
+        nodes.forEach((node) => { next[node.id] = node.position; });
+        return next;
+      }
+      // Normal update: preserve drag positions for existing nodes
       const next = {};
       nodes.forEach((node) => {
         next[node.id] = previous[node.id] || node.position;
       });
       return next;
     });
+
+    // Store current layout positions for next comparison
+    const snapshot = {};
+    nodes.forEach((node) => { snapshot[node.id] = node.position; });
+    prevLayoutRef.current = snapshot;
   }, [nodes]);
 
   const nodesWithPositions = useMemo(
@@ -126,6 +147,22 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
     () => highlightedNodeIds(selectedNodeId, hoveredNodeId, edges),
     [selectedNodeId, hoveredNodeId, edges]
   );
+
+  const { entryNodeIds, exitNodeIds } = useMemo(() => {
+    const targets = new Set();
+    const sources = new Set();
+    const allIds = new Set(nodesWithPositions.map((n) => n.id));
+    edges.forEach((e) => {
+      if (allIds.has(e.source) && allIds.has(e.target)) {
+        targets.add(e.target);
+        sources.add(e.source);
+      }
+    });
+    return {
+      entryNodeIds: new Set(nodesWithPositions.filter((n) => sources.has(n.id) && !targets.has(n.id)).map((n) => n.id)),
+      exitNodeIds: new Set(nodesWithPositions.filter((n) => targets.has(n.id) && !sources.has(n.id)).map((n) => n.id)),
+    };
+  }, [nodesWithPositions, edges]);
 
   const clearFitTimers = useCallback(() => {
     fitTimersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -292,8 +329,8 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
           {nodesWithPositions.map((node) => {
             const visual = getServiceVisual(node.service);
             return (
-              <marker key={node.id} id={`arrow-${node.id}`} markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-                <path d="M0,0 L0,7 L7,3.5 z" fill={visual.color} fillOpacity="0.7" />
+              <marker key={node.id} id={`arrow-${node.id}`} markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                <path d="M0,1 L0,9 L10,5 z" fill={visual.color} fillOpacity="0.8" />
               </marker>
             );
           })}
@@ -402,6 +439,32 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
                   role={nodeRoles[node.id]}
                   blastHighlight={blastHighlight}
                 />
+              </g>
+            );
+          })}
+
+          {/* Flow direction badges — entry (START) and exit (END) indicators */}
+          {viewport.scale >= 0.35 && renderNodes.map((node) => {
+            const isEntry = entryNodeIds.has(node.id);
+            const isExit = exitNodeIds.has(node.id);
+            if (!isEntry && !isExit) return null;
+            const frame = getNodeFrame(node, selectedNodeId === node.id);
+            const x = node.position.x;
+            const y = node.position.y - frame.height / 2 - 18;
+            return (
+              <g key={`flow-badge-${node.id}`} opacity={0.85}>
+                {isEntry && (
+                  <>
+                    <rect x={x - 22} y={y - 7} width="44" height="14" rx="3" fill="#ff9900" fillOpacity="0.15" stroke="#ff9900" strokeWidth="0.6" strokeOpacity="0.5" />
+                    <text x={x} y={y + 3.5} textAnchor="middle" fontSize="8" fill="#ff9900" fontWeight="700" letterSpacing="0.1em">START</text>
+                  </>
+                )}
+                {isExit && (
+                  <>
+                    <rect x={x - 18} y={y - 7} width="36" height="14" rx="3" fill="#00e7ff" fillOpacity="0.15" stroke="#00e7ff" strokeWidth="0.6" strokeOpacity="0.5" />
+                    <text x={x} y={y + 3.5} textAnchor="middle" fontSize="8" fill="#00e7ff" fontWeight="700" letterSpacing="0.1em">END</text>
+                  </>
+                )}
               </g>
             );
           })}

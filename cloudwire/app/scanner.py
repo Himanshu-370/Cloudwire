@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Lock
 from time import perf_counter
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set
+from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,24 @@ def _safe_list(value: Any) -> List[Any]:
     return [value]
 
 
+_ARN_PATTERN = re.compile(r"^arn:aws:[a-z0-9-]+:")
+
+# Well-known Lambda environment variable suffixes that imply a resource reference.
+# Mapping of suffix -> (service, node_type).
+_ENV_VAR_CONVENTIONS: Dict[str, Tuple[str, str]] = {
+    "_TABLE_NAME": ("dynamodb", "table"),
+    "_TABLE": ("dynamodb", "table"),
+    "_QUEUE_URL": ("sqs", "queue"),
+    "_QUEUE_NAME": ("sqs", "queue"),
+    "_BUCKET": ("s3", "bucket"),
+    "_BUCKET_NAME": ("s3", "bucket"),
+    "_STREAM_NAME": ("kinesis", "stream"),
+    "_CLUSTER_NAME": ("ecs", "cluster"),
+    "_CLUSTER": ("ecs", "cluster"),
+    "_CACHE_ENDPOINT": ("elasticache", "cluster"),
+}
+
+
 @dataclass
 class ScanExecutionOptions:
     mode: ScanMode = "quick"
@@ -48,6 +67,7 @@ class ScanExecutionOptions:
     dynamodb_describe_workers: int = 16
     sqs_attribute_workers: int = 16
     iam_workers: int = 8
+    ecs_describe_workers: int = 4
 
 
 class ScanCancelledError(Exception):
@@ -55,6 +75,29 @@ class ScanCancelledError(Exception):
 
 
 class AWSGraphScanner:
+    # IAM action prefix -> normalized service name for policy dependency inference
+    _IAM_PREFIX_TO_SERVICE: Dict[str, str] = {
+        "dynamodb": "dynamodb",
+        "sqs": "sqs",
+        "events": "eventbridge",
+        "lambda": "lambda",
+        "s3": "s3",
+        "sns": "sns",
+        "kinesis": "kinesis",
+        "states": "stepfunctions",
+        "rds-data": "rds",
+        "rds": "rds",
+        "secretsmanager": "secretsmanager",
+        "kms": "kms",
+        "ecs": "ecs",
+        "execute-api": "apigateway",
+        "elasticache": "elasticache",
+        "redshift-data": "redshift",
+        "glue": "glue",
+        "cognito-idp": "cognito",
+        "appsync": "appsync",
+    }
+
     def __init__(self, store: GraphStore, *, options: ScanExecutionOptions) -> None:
         self.store = store
         self.options = options
@@ -172,7 +215,15 @@ class AWSGraphScanner:
                 self._scan_generic_service(session, service)
         except ScanCancelledError:
             return int((perf_counter() - start) * 1000)
-        except (ClientError, BotoCoreError) as exc:
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
+                logger.warning("Permission denied scanning %s: %s", service, error_code)
+                self.store.add_warning(f"[permission] {service}: access denied — check IAM permissions for this service")
+            else:
+                logger.warning("AWS API error scanning %s: %s", service, exc)
+                self.store.add_warning(f"{service} scan failed: {type(exc).__name__} - {exc}")
+        except BotoCoreError as exc:
             logger.warning("AWS API error scanning %s: %s", service, exc)
             self.store.add_warning(f"{service} scan failed: {type(exc).__name__} - {exc}")
         except Exception as exc:
@@ -317,21 +368,72 @@ class AWSGraphScanner:
                 break
         return integrations
 
+    def _resolve_apigw_integration_target(self, integration: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+        """Resolve an API Gateway integration to (target_node_id, relationship) or None."""
+        uri = integration.get("IntegrationUri") or integration.get("uri") or ""
+        subtype = integration.get("IntegrationSubtype") or ""
+
+        # Lambda integrations (most common)
+        lambda_arn = self._parse_lambda_arn(uri)
+        if lambda_arn:
+            return self._add_arn_node(lambda_arn, node_type="lambda"), "invokes"
+
+        # Step Functions
+        if "StepFunctions" in subtype or "states:::execution" in subtype or ":states:" in uri:
+            arn = uri if _ARN_PATTERN.match(uri) else None
+            if arn:
+                return self._add_arn_node(arn), "invokes"
+
+        # SQS
+        if "SQS" in subtype or ":sqs:" in uri:
+            arn = uri if _ARN_PATTERN.match(uri) else None
+            if arn:
+                return self._add_arn_node(arn), "sends_to"
+
+        # SNS
+        if "SNS" in subtype or ":sns:" in uri:
+            arn = uri if _ARN_PATTERN.match(uri) else None
+            if arn:
+                return self._add_arn_node(arn), "publishes_to"
+
+        # Kinesis
+        if "Kinesis" in subtype or ":kinesis:" in uri:
+            arn = uri if _ARN_PATTERN.match(uri) else None
+            if arn:
+                return self._add_arn_node(arn), "sends_to"
+
+        # EventBridge
+        if "EventBridge" in subtype or ":events:" in uri:
+            arn = uri if _ARN_PATTERN.match(uri) else None
+            if arn:
+                return self._add_arn_node(arn), "sends_to"
+
+        # Generic ARN fallback
+        if _ARN_PATTERN.match(uri):
+            return self._add_arn_node(uri), "integrates_with"
+
+        return None
+
     def _apply_apigwv2_integrations(self, future: Future[Any], api_node: str) -> None:
-        integrations = future.result()
+        try:
+            integrations = future.result()
+        except Exception as exc:
+            logger.debug("Failed to fetch API Gateway v2 integrations: %s", exc)
+            return
         self._ensure_not_cancelled()
         for integration in integrations:
             self._ensure_not_cancelled()
-            lambda_arn = self._parse_lambda_arn(integration.get("IntegrationUri"))
-            if not lambda_arn:
-                continue
-            lambda_node = self._add_arn_node(lambda_arn, node_type="lambda")
-            self.store.add_edge(
-                api_node,
-                lambda_node,
-                relationship="invokes",
-                via="apigatewayv2_integration",
-            )
+            try:
+                result = self._resolve_apigw_integration_target(integration)
+                if not result:
+                    continue
+                target_node, relationship = result
+                self.store.add_edge(
+                    api_node, target_node,
+                    relationship=relationship, via="apigatewayv2_integration",
+                )
+            except Exception as exc:
+                logger.debug("Failed to resolve API Gateway v2 integration target: %s", exc)
 
     def _scan_apigateway_rest(self, session: boto3.session.Session) -> None:
         client = self._client(session, "apigateway")
@@ -379,7 +481,7 @@ class AWSGraphScanner:
                     with ThreadPoolExecutor(max_workers=workers) as pool:
                         futures = {
                             pool.submit(
-                                self._fetch_apigw_rest_integration_lambda,
+                                self._fetch_apigw_rest_integration,
                                 client,
                                 rest_api_id,
                                 resource_id,
@@ -389,20 +491,24 @@ class AWSGraphScanner:
                         }
                         self._drain_futures(futures, self._apply_apigateway_rest_integration)
 
+                # Phase 3, Item 10: Cognito authorizer edges
+                if self.options.include_resource_describes:
+                    self._scan_rest_api_authorizers(client, rest_api_id, api_node)
+
             position = page.get("position")
             if not position:
                 break
 
-    def _fetch_apigw_rest_integration_lambda(
+    def _fetch_apigw_rest_integration(
         self,
         client: Any,
         rest_api_id: str,
         resource_id: str,
         http_method: str,
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, Any]]:
         try:
             self._increment_api_call("apigateway", "get_integration")
-            integration = client.get_integration(
+            return client.get_integration(
                 restApiId=rest_api_id,
                 resourceId=resource_id,
                 httpMethod=http_method,
@@ -410,20 +516,51 @@ class AWSGraphScanner:
         except ClientError as exc:
             logger.debug("Skipping API Gateway integration %s/%s/%s: %s", rest_api_id, resource_id, http_method, exc)
             return None
-        return self._parse_lambda_arn(integration.get("uri"))
 
     def _apply_apigateway_rest_integration(self, future: Future[Any], api_node: str) -> None:
-        lambda_arn = future.result()
-        if not lambda_arn:
+        try:
+            integration = future.result()
+        except Exception as exc:
+            logger.debug("Failed to fetch REST API integration: %s", exc)
+            return
+        if not integration:
             return
         self._ensure_not_cancelled()
-        lambda_node = self._add_arn_node(lambda_arn, node_type="lambda")
-        self.store.add_edge(
-            api_node,
-            lambda_node,
-            relationship="invokes",
-            via="apigateway_rest_integration",
-        )
+        try:
+            result = self._resolve_apigw_integration_target(integration)
+            if not result:
+                return
+            target_node, relationship = result
+            self.store.add_edge(
+                api_node, target_node,
+                relationship=relationship, via="apigateway_rest_integration",
+            )
+        except Exception as exc:
+            logger.debug("Failed to resolve REST API integration target: %s", exc)
+
+    def _scan_rest_api_authorizers(self, client: Any, rest_api_id: str, api_node: str) -> None:
+        """Discover Cognito user pool authorizers on a REST API (Phase 3, Item 10)."""
+        try:
+            self._ensure_not_cancelled()
+            self._increment_api_call("apigateway", "get_authorizers")
+            response = client.get_authorizers(restApiId=rest_api_id)
+            for authorizer in response.get("items", []):
+                auth_type = authorizer.get("type", "")
+                if auth_type != "COGNITO_USER_POOLS":
+                    continue
+                for provider_arn in authorizer.get("providerARNs", []):
+                    if not isinstance(provider_arn, str) or not _ARN_PATTERN.match(provider_arn):
+                        continue
+                    cognito_node = self._add_arn_node(provider_arn, node_type="user_pool")
+                    self._node(cognito_node, service="cognito")
+                    self.store.add_edge(
+                        cognito_node, api_node,
+                        relationship="authorizes", via="cognito_authorizer",
+                    )
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("REST API authorizer scan skipped for %s: %s", rest_api_id, exc)
+        except Exception as exc:
+            logger.debug("Unexpected error scanning authorizers for REST API %s: %s", rest_api_id, exc)
 
     def _scan_lambda(self, session: boto3.session.Session) -> None:
         client = self._client(session, "lambda")
@@ -458,10 +595,73 @@ class AWSGraphScanner:
             if role_arn:
                 role_name = role_arn.split("/")[-1]
                 role_to_function_nodes.setdefault(role_name, []).append(node_id)
+                # Phase 2, Item 4: IAM Role → Lambda edge
+                if _ARN_PATTERN.match(role_arn):
+                    role_node = self._add_arn_node(role_arn, label=role_name, node_type="role")
+                    self._node(role_node, service="iam")
+                    self.store.add_edge(role_node, node_id, relationship="assumed_by", via="lambda_execution_role")
+
+            # Phase 1, Item 1: Lambda env var edges
+            self._extract_lambda_env_edges(fn, node_id)
 
         self._scan_lambda_event_sources_global(client, function_node_ids)
         if self.options.include_iam_inference:
             self._scan_lambda_iam_dependencies_parallel(session, role_to_function_nodes)
+
+    def _extract_lambda_env_edges(self, fn: Dict[str, Any], function_node_id: str) -> None:
+        """Extract edges from Lambda environment variables to referenced resources.
+
+        Recognises explicit ARNs and well-known naming conventions (e.g. *_TABLE_NAME).
+        Environment variable *values* are never logged to avoid leaking secrets.
+        """
+        env_vars = fn.get("Environment", {}).get("Variables", {})
+        if not env_vars or not isinstance(env_vars, dict):
+            return
+
+        seen_targets: Set[str] = set()
+        for key, value in env_vars.items():
+            try:
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                value = value.strip()
+
+                # 1. Explicit ARN reference
+                if _ARN_PATTERN.match(value):
+                    target = self._add_arn_node(value)
+                    if target not in seen_targets:
+                        seen_targets.add(target)
+                        self.store.add_edge(
+                            function_node_id, target,
+                            relationship="references", via="lambda_env_var",
+                        )
+                    continue
+
+                # 2. Naming convention fallback
+                upper_key = key.upper()
+                for suffix, (service, node_type) in _ENV_VAR_CONVENTIONS.items():
+                    if not upper_key.endswith(suffix):
+                        continue
+                    # Reject values that look like config flags rather than resource names
+                    if len(value) < 2 or len(value) > 256:
+                        break
+                    if service == "s3":
+                        node_id = self._make_node_id("s3", value)
+                        self._node(node_id, label=value, service="s3", type="bucket",
+                                   arn=f"arn:aws:s3:::{value}")
+                    else:
+                        node_id = self._make_node_id(service, value)
+                        self._node(node_id, label=value, service=service, type=node_type)
+                    if node_id not in seen_targets:
+                        seen_targets.add(node_id)
+                        self.store.add_edge(
+                            function_node_id, node_id,
+                            relationship="references", via="lambda_env_var_convention",
+                        )
+                    break  # match at most one convention per variable
+            except Exception:
+                # Never let a single env var parsing error abort the scan.
+                # Intentionally do not log the value (may contain secrets).
+                logger.debug("Lambda env var edge extraction failed for key %s", key)
 
     def _scan_lambda_event_sources_global(self, client: Any, function_node_ids: Dict[str, str]) -> None:
         marker: Optional[str] = None
@@ -530,9 +730,16 @@ class AWSGraphScanner:
     ) -> None:
         try:
             policy_details = future.result()
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code in ("AccessDenied", "AccessDeniedException"):
+                self.store.add_warning(f"[permission] iam: access denied reading policies for role {role_name}")
+            else:
+                self.store.add_warning(f"iam policy lookup failed for {role_name}: {error_code} - {exc}")
+            return
         except Exception as exc:
             logger.warning("IAM policy lookup failed for role %s: %s", role_name, exc)
-            self.store.add_warning(f"iam policy lookup failed for {role_name}: {type(exc).__name__} - {exc}")
+            self.store.add_warning(f"iam policy lookup failed for {role_name}: {type(exc).__name__}")
             return
 
         self._ensure_not_cancelled()
@@ -568,8 +775,8 @@ class AWSGraphScanner:
             if ":" not in action:
                 continue
             prefix, verb = action.split(":", 1)
-            if prefix in {"dynamodb", "sqs", "events", "lambda"}:
-                normalized = "eventbridge" if prefix == "events" else prefix
+            normalized = self._IAM_PREFIX_TO_SERVICE.get(prefix)
+            if normalized:
                 service_actions.setdefault(normalized, set()).add(verb)
         return service_actions
 
@@ -596,8 +803,19 @@ class AWSGraphScanner:
         iam = self._client(session, "iam")
         policy_docs: List[Dict[str, Any]] = []
 
-        self._increment_api_call("iam", "list_role_policies")
-        inline_policy_names = iam.list_role_policies(RoleName=role_name).get("PolicyNames", [])
+        inline_policy_names: List[str] = []
+        inline_marker: Optional[str] = None
+        while True:
+            self._ensure_not_cancelled()
+            inline_kwargs: Dict[str, Any] = {"RoleName": role_name}
+            if inline_marker:
+                inline_kwargs["Marker"] = inline_marker
+            self._increment_api_call("iam", "list_role_policies")
+            inline_page = iam.list_role_policies(**inline_kwargs)
+            inline_policy_names.extend(inline_page.get("PolicyNames", []))
+            inline_marker = inline_page.get("Marker") if inline_page.get("IsTruncated") else None
+            if not inline_marker:
+                break
         for policy_name in inline_policy_names:
             self._ensure_not_cancelled()
             self._increment_api_call("iam", "get_role_policy")
@@ -688,7 +906,11 @@ class AWSGraphScanner:
         ).get("Attributes", {})
 
     def _apply_sqs_queue_attributes(self, future: Future[Any], queue_url: str) -> None:
-        attrs = future.result()
+        try:
+            attrs = future.result()
+        except Exception as exc:
+            logger.debug("Failed to fetch SQS queue attributes for %s: %s", queue_url, exc)
+            return
         self._ensure_not_cancelled()
         queue_arn = attrs.get("QueueArn")
         queue_name = queue_url.rstrip("/").split("/")[-1]
@@ -716,8 +938,8 @@ class AWSGraphScanner:
                     self.store.add_edge(
                         node_id, dlq_node, relationship="dead_letter_to", via="sqs_redrive_policy"
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed to parse SQS redrive policy: %s", exc)
 
     def _scan_eventbridge(self, session: boto3.session.Session) -> None:
         client = self._client(session, "events")
@@ -764,7 +986,11 @@ class AWSGraphScanner:
         return targets
 
     def _apply_eventbridge_targets(self, future: Future[Any], rule: Dict[str, Any]) -> None:
-        targets = future.result()
+        try:
+            targets = future.result()
+        except Exception as exc:
+            logger.debug("Failed to fetch EventBridge targets: %s", exc)
+            return
         self._ensure_not_cancelled()
         rule_arn = rule.get("Arn") or f"rule:{rule.get('Name')}"
         rule_node = self._make_node_id(self._service_from_arn(rule_arn), rule_arn)
@@ -834,6 +1060,24 @@ class AWSGraphScanner:
             state=table.get("TableStatus"),
         )
 
+        # Phase 3, Item 8: DynamoDB Streams explicit edge
+        stream_arn = table.get("LatestStreamArn")
+        if stream_arn and _ARN_PATTERN.match(stream_arn):
+            stream_node = self._add_arn_node(stream_arn, label=f"{table_name}-stream", node_type="stream")
+            self._node(stream_node, service="dynamodb", type="stream")
+            self.store.add_edge(node_id, stream_node, relationship="streams_to", via="dynamodb_stream")
+
+        # DynamoDB global table replicas
+        for replica in table.get("Replicas", []):
+            replica_region = replica.get("RegionName", "")
+            if replica_region and replica_region != self._region:
+                replica_node = self._make_node_id("dynamodb", f"{table_name}@{replica_region}")
+                self._node(replica_node, label=f"{table_name} ({replica_region})", service="dynamodb",
+                           type="table_replica", region=replica_region,
+                           state=replica.get("ReplicaStatus"))
+                self.store.add_edge(node_id, replica_node, relationship="replicates_to",
+                                    via="dynamodb_global_table")
+
     # ── EC2 ──────────────────────────────────────────────────────────────────
 
     def _scan_ec2(self, session: boto3.session.Session) -> None:
@@ -846,8 +1090,9 @@ class AWSGraphScanner:
                 for instance in reservation.get("Instances", []):
                     self._ensure_not_cancelled()
                     instance_id = instance.get("InstanceId", "")
+                    owner_id = instance.get("OwnerId", "")
                     name_tag = next((t["Value"] for t in instance.get("Tags", []) if t.get("Key") == "Name"), None)
-                    arn = f"arn:aws:ec2:{self._region}:{instance.get('OwnerId', '')}:instance/{instance_id}"
+                    arn = f"arn:aws:ec2:{self._region}:{owner_id}:instance/{instance_id}"
                     node_id = self._make_node_id("ec2", instance_id)
                     self._node(
                         node_id,
@@ -860,6 +1105,42 @@ class AWSGraphScanner:
                         vpc_id=instance.get("VpcId"),
                         subnet_id=instance.get("SubnetId"),
                     )
+
+                    # Phase 2, Item 5: EC2 → VPC / Subnet / Security Group edges
+                    vpc_id = instance.get("VpcId")
+                    if vpc_id:
+                        vpc_node = self._make_node_id("ec2", f"vpc/{vpc_id}")
+                        self._node(vpc_node, label=vpc_id, service="ec2", type="vpc",
+                                   arn=f"arn:aws:ec2:{self._region}:{owner_id}:vpc/{vpc_id}")
+                        self.store.add_edge(vpc_node, node_id, relationship="contains", via="ec2_vpc_membership")
+
+                    subnet_id = instance.get("SubnetId")
+                    if subnet_id:
+                        subnet_node = self._make_node_id("ec2", f"subnet/{subnet_id}")
+                        self._node(subnet_node, label=subnet_id, service="ec2", type="subnet",
+                                   arn=f"arn:aws:ec2:{self._region}:{owner_id}:subnet/{subnet_id}")
+                        self.store.add_edge(subnet_node, node_id, relationship="contains", via="ec2_subnet_membership")
+                        if vpc_id:
+                            self.store.add_edge(vpc_node, subnet_node, relationship="contains", via="ec2_vpc_subnet")
+
+                    for sg in instance.get("SecurityGroups", []):
+                        sg_id = sg.get("GroupId", "")
+                        if sg_id:
+                            sg_node = self._make_node_id("ec2", f"sg/{sg_id}")
+                            self._node(sg_node, label=sg.get("GroupName", sg_id), service="ec2",
+                                       type="security_group",
+                                       arn=f"arn:aws:ec2:{self._region}:{owner_id}:security-group/{sg_id}")
+                            self.store.add_edge(sg_node, node_id, relationship="protects", via="ec2_security_group")
+
+                    # EC2 → IAM Instance Profile
+                    iam_profile = instance.get("IamInstanceProfile", {})
+                    profile_arn = iam_profile.get("Arn", "")
+                    if profile_arn and _ARN_PATTERN.match(profile_arn):
+                        profile_node = self._add_arn_node(profile_arn, label=profile_arn.split("/")[-1],
+                                                          node_type="instance_profile")
+                        self._node(profile_node, service="iam")
+                        self.store.add_edge(profile_node, node_id, relationship="assumed_by",
+                                            via="ec2_instance_profile")
 
     # ── ECS ──────────────────────────────────────────────────────────────────
 
@@ -875,20 +1156,72 @@ class AWSGraphScanner:
         for arn in cluster_arns:
             self._ensure_not_cancelled()
             cluster_name = arn.split("/")[-1]
-            node_id = self._add_arn_node(arn, label=cluster_name, node_type="cluster")
-            self._node(node_id, service="ecs")
+            cluster_node = self._add_arn_node(arn, label=cluster_name, node_type="cluster")
+            self._node(cluster_node, service="ecs")
 
             # List services in this cluster
+            svc_arns: List[str] = []
             svc_paginator = client.get_paginator("list_services")
             for svc_page in svc_paginator.paginate(cluster=arn):
                 self._ensure_not_cancelled()
                 self._increment_api_call("ecs", "list_services")
-                for svc_arn in svc_page.get("serviceArns", []):
-                    self._ensure_not_cancelled()
-                    svc_name = svc_arn.split("/")[-1]
-                    svc_node = self._add_arn_node(svc_arn, label=svc_name, node_type="service")
-                    self._node(svc_node, service="ecs")
-                    self.store.add_edge(node_id, svc_node, relationship="hosts")
+                svc_arns.extend(svc_page.get("serviceArns", []))
+
+            for svc_arn in svc_arns:
+                self._ensure_not_cancelled()
+                svc_name = svc_arn.split("/")[-1]
+                svc_node = self._add_arn_node(svc_arn, label=svc_name, node_type="service")
+                self._node(svc_node, service="ecs")
+                self.store.add_edge(cluster_node, svc_node, relationship="hosts")
+
+            # Phase 2, Item 6: ECS describe_services for task def, LB, and role edges
+            if svc_arns and self.options.include_resource_describes:
+                self._describe_ecs_service_edges(client, arn, svc_arns)
+
+    def _describe_ecs_service_edges(self, client: Any, cluster_arn: str, service_arns: List[str]) -> None:
+        """Enrich ECS services with task definition, load balancer, and role edges."""
+        # describe_services accepts max 10 at a time
+        for batch_start in range(0, len(service_arns), 10):
+            self._ensure_not_cancelled()
+            batch = service_arns[batch_start:batch_start + 10]
+            try:
+                self._increment_api_call("ecs", "describe_services")
+                response = client.describe_services(cluster=cluster_arn, services=batch)
+            except (ClientError, BotoCoreError) as exc:
+                logger.debug("ECS describe_services failed for cluster %s: %s", cluster_arn.split("/")[-1], exc)
+                continue
+
+            for svc in response.get("services", []):
+                svc_arn = svc.get("serviceArn", "")
+                svc_node = self._make_node_id(self._service_from_arn(svc_arn), svc_arn) if svc_arn else None
+                if not svc_node:
+                    continue
+
+                # Task definition edge
+                task_def_arn = svc.get("taskDefinition", "")
+                if task_def_arn and _ARN_PATTERN.match(task_def_arn):
+                    td_node = self._add_arn_node(task_def_arn, label=task_def_arn.split("/")[-1],
+                                                 node_type="task_definition")
+                    self._node(td_node, service="ecs")
+                    self.store.add_edge(svc_node, td_node, relationship="uses", via="ecs_task_definition")
+
+                # Load balancer / target group edges
+                for lb in svc.get("loadBalancers", []):
+                    tg_arn = lb.get("targetGroupArn", "")
+                    if tg_arn and _ARN_PATTERN.match(tg_arn):
+                        tg_node = self._add_arn_node(tg_arn, label=tg_arn.split("/")[-1],
+                                                     node_type="target_group")
+                        self._node(tg_node, service="elb")
+                        self.store.add_edge(svc_node, tg_node, relationship="registered_with",
+                                            via="ecs_load_balancer")
+
+                # Service role edge
+                role_arn = svc.get("roleArn", "")
+                if role_arn and _ARN_PATTERN.match(role_arn):
+                    role_node = self._add_arn_node(role_arn, label=role_arn.split("/")[-1], node_type="role")
+                    self._node(role_node, service="iam")
+                    self.store.add_edge(role_node, svc_node, relationship="assumed_by",
+                                        via="ecs_service_role")
 
     # ── S3 ───────────────────────────────────────────────────────────────────
 
@@ -1336,7 +1669,7 @@ class AWSGraphScanner:
                     state=dist.get("Status"),
                     domain=domain,
                 )
-                # CloudFront → S3 / custom origins
+                # CloudFront → S3 / API Gateway / ALB origins
                 for origin in (dist.get("Origins") or {}).get("Items", []):
                     origin_domain = origin.get("DomainName", "")
                     # S3 origins: bucket.s3.amazonaws.com or bucket.s3.region.amazonaws.com
@@ -1353,6 +1686,44 @@ class AWSGraphScanner:
                         self.store.add_edge(
                             node_id, s3_node, relationship="serves_from", via="cloudfront_origin"
                         )
+                    elif "execute-api" in origin_domain:
+                        # API Gateway origin
+                        api_id = origin_domain.split(".execute-api.")[0] if ".execute-api." in origin_domain else origin_domain
+                        apigw_node = self._make_node_id("apigateway", api_id)
+                        self._node(apigw_node, label=api_id, service="apigateway", type="api")
+                        self.store.add_edge(node_id, apigw_node, relationship="serves_from",
+                                            via="cloudfront_origin")
+                    elif ".elb.amazonaws.com" in origin_domain or ".elasticloadbalancing." in origin_domain:
+                        # ALB/ELB origin
+                        elb_node = self._make_node_id("elb", origin_domain)
+                        self._node(elb_node, label=origin_domain, service="elb", type="load_balancer")
+                        self.store.add_edge(node_id, elb_node, relationship="serves_from",
+                                            via="cloudfront_origin")
+
+                # Phase 2, Item 7: CloudFront → Lambda@Edge (once per distribution)
+                self._extract_cloudfront_lambda_edges(node_id, dist)
+
+    def _extract_cloudfront_lambda_edges(self, cf_node: str, dist: Dict[str, Any]) -> None:
+        """Extract Lambda@Edge associations from CloudFront cache behaviors."""
+        behaviors: List[Dict[str, Any]] = []
+        default_behavior = dist.get("DefaultCacheBehavior")
+        if default_behavior:
+            behaviors.append(default_behavior)
+        for behavior in (dist.get("CacheBehaviors") or {}).get("Items", []):
+            behaviors.append(behavior)
+
+        seen_arns: Set[str] = set()
+        for behavior in behaviors:
+            for assoc in (behavior.get("LambdaFunctionAssociations") or {}).get("Items", []):
+                fn_arn = assoc.get("LambdaFunctionARN", "")
+                if not fn_arn or not fn_arn.startswith("arn:aws:lambda:") or fn_arn in seen_arns:
+                    continue
+                seen_arns.add(fn_arn)
+                base_arn = self._base_lambda_arn(fn_arn)
+                target = self._add_arn_node(base_arn, node_type="lambda")
+                self.store.add_edge(cf_node, target, relationship="invokes",
+                                    via="cloudfront_lambda_edge",
+                                    event_type=assoc.get("EventType"))
 
     # ── ElastiCache ──────────────────────────────────────────────────────────
 
@@ -1414,6 +1785,10 @@ class AWSGraphScanner:
                 }
                 self._drain_futures(futures, self._apply_glue_job_edges)
 
+        # Phase 3, Item 11: Glue crawlers and triggers
+        self._scan_glue_crawlers(client)
+        self._scan_glue_triggers(client)
+
     def _fetch_glue_job_detail(self, client: Any, job_name: str) -> Dict[str, Any]:
         try:
             self._increment_api_call("glue", "get_job")
@@ -1451,6 +1826,117 @@ class AWSGraphScanner:
             self._node(conn_node, label=conn_name, service="glue", type="connection",
                         arn=f"arn:aws:glue:{self._region}:*:connection/{conn_name}")
             self.store.add_edge(job_node, conn_node, relationship="uses", via="glue_connection")
+
+    def _scan_glue_crawlers(self, client: Any) -> None:
+        """Discover Glue crawlers and their S3/DynamoDB/database targets (Phase 3, Item 11)."""
+        next_token: Optional[str] = None
+        while True:
+            self._ensure_not_cancelled()
+            kwargs: Dict[str, Any] = {}
+            if next_token:
+                kwargs["NextToken"] = next_token
+            try:
+                self._increment_api_call("glue", "get_crawlers")
+                page = client.get_crawlers(**kwargs)
+            except (ClientError, BotoCoreError) as exc:
+                logger.debug("Glue get_crawlers failed: %s", exc)
+                self.store.add_warning(f"glue crawler scan failed: {type(exc).__name__}")
+                return
+
+            for crawler in page.get("Crawlers", []):
+                self._ensure_not_cancelled()
+                name = crawler.get("Name", "")
+                if not name:
+                    continue
+                arn = f"arn:aws:glue:{self._region}:*:crawler/{name}"
+                node_id = self._make_node_id("glue", f"crawler:{name}")
+                self._node(node_id, label=name, service="glue", type="crawler", arn=arn,
+                           state=crawler.get("State"))
+
+                # Crawler → S3 targets
+                for target in (crawler.get("Targets") or {}).get("S3Targets", []):
+                    path = target.get("Path", "")
+                    if path.startswith("s3://"):
+                        bucket = path[5:].split("/")[0]
+                        if bucket:
+                            s3_node = self._make_node_id("s3", bucket)
+                            self._node(s3_node, label=bucket, service="s3", type="bucket",
+                                       arn=f"arn:aws:s3:::{bucket}")
+                            self.store.add_edge(node_id, s3_node, relationship="crawls",
+                                                via="glue_crawler_target")
+
+                # Crawler → DynamoDB targets
+                for target in (crawler.get("Targets") or {}).get("DynamoDBTargets", []):
+                    table = target.get("Path", "")
+                    if table:
+                        ddb_node = self._make_node_id("dynamodb", table)
+                        self._node(ddb_node, label=table, service="dynamodb", type="table")
+                        self.store.add_edge(node_id, ddb_node, relationship="crawls",
+                                            via="glue_crawler_target")
+
+                # Crawler → output database
+                db_name = crawler.get("DatabaseName", "")
+                if db_name:
+                    db_node = self._make_node_id("glue", f"database:{db_name}")
+                    self._node(db_node, label=db_name, service="glue", type="database",
+                               arn=f"arn:aws:glue:{self._region}:*:database/{db_name}")
+                    self.store.add_edge(node_id, db_node, relationship="populates",
+                                        via="glue_crawler_output")
+
+            next_token = page.get("NextToken")
+            if not next_token:
+                break
+
+    def _scan_glue_triggers(self, client: Any) -> None:
+        """Discover Glue triggers and their job/crawler action edges (Phase 3, Item 11)."""
+        next_token: Optional[str] = None
+        while True:
+            self._ensure_not_cancelled()
+            kwargs: Dict[str, Any] = {}
+            if next_token:
+                kwargs["NextToken"] = next_token
+            try:
+                self._increment_api_call("glue", "get_triggers")
+                page = client.get_triggers(**kwargs)
+            except (ClientError, BotoCoreError) as exc:
+                logger.debug("Glue get_triggers failed: %s", exc)
+                self.store.add_warning(f"glue trigger scan failed: {type(exc).__name__}")
+                return
+
+            for trigger in page.get("Triggers", []):
+                self._ensure_not_cancelled()
+                name = trigger.get("Name", "")
+                if not name:
+                    continue
+                node_id = self._make_node_id("glue", f"trigger:{name}")
+                self._node(node_id, label=name, service="glue", type="trigger",
+                           arn=f"arn:aws:glue:{self._region}:*:trigger/{name}",
+                           trigger_type=trigger.get("Type"), state=trigger.get("State"))
+
+                # Trigger → job/crawler actions
+                for action in trigger.get("Actions", []):
+                    job_name = action.get("JobName", "")
+                    if job_name:
+                        job_node = self._make_node_id("glue", job_name)
+                        self.store.add_edge(node_id, job_node, relationship="triggers",
+                                            via="glue_trigger")
+                    crawler_name = action.get("CrawlerName", "")
+                    if crawler_name:
+                        crawler_node = self._make_node_id("glue", f"crawler:{crawler_name}")
+                        self.store.add_edge(node_id, crawler_node, relationship="triggers",
+                                            via="glue_trigger")
+
+                # Predicate conditions: job completion → trigger
+                for condition in (trigger.get("Predicate") or {}).get("Conditions", []):
+                    pred_job = condition.get("JobName", "")
+                    if pred_job:
+                        pred_node = self._make_node_id("glue", pred_job)
+                        self.store.add_edge(pred_node, node_id, relationship="triggers",
+                                            via="glue_trigger_predicate")
+
+            next_token = page.get("NextToken")
+            if not next_token:
+                break
 
     # ── AppSync ──────────────────────────────────────────────────────────────
 
@@ -1633,11 +2119,28 @@ class AWSGraphScanner:
             target_svc = self._R53_ALIAS_ZONE_TO_SERVICE.get(alias["zone"])
             dns = alias["dns"]
             if target_svc == "cloudfront" and ".cloudfront.net" in dns:
-                # Create a stub cloudfront node keyed by domain
-                cf_label = dns.split(".cloudfront.net")[0].split(".")[-1]
                 cf_node = self._make_node_id("cloudfront", dns)
                 self._node(cf_node, label=dns, service="cloudfront", type="distribution", arn=dns, domain=dns)
                 self.store.add_edge(zone_node, cf_node, relationship="routes_to", via="route53_alias")
+            elif "execute-api" in dns:
+                # Phase 3, Item 9: Route53 → API Gateway
+                api_id = dns.split(".execute-api.")[0] if ".execute-api." in dns else dns
+                apigw_node = self._make_node_id("apigateway", api_id)
+                self._node(apigw_node, label=api_id, service="apigateway", type="api")
+                self.store.add_edge(zone_node, apigw_node, relationship="routes_to", via="route53_alias")
+            elif ".s3-website" in dns or dns.endswith(".s3.amazonaws.com"):
+                # Phase 3, Item 9: Route53 → S3 website
+                bucket_name = dns.split(".s3")[0]
+                if bucket_name:
+                    s3_node = self._make_node_id("s3", bucket_name)
+                    self._node(s3_node, label=bucket_name, service="s3", type="bucket",
+                               arn=f"arn:aws:s3:::{bucket_name}")
+                    self.store.add_edge(zone_node, s3_node, relationship="routes_to", via="route53_alias")
+            elif target_svc == "elb":
+                # Route53 → ELB
+                elb_node = self._make_node_id("elb", dns)
+                self._node(elb_node, label=dns, service="elb", type="load_balancer")
+                self.store.add_edge(zone_node, elb_node, relationship="routes_to", via="route53_alias")
 
     # ── Redshift ──────────────────────────────────────────────────────────────
 

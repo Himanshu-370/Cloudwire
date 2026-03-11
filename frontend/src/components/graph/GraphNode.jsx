@@ -89,6 +89,22 @@ function getTooltipRows(node) {
     if (node.type) rows.push({ key: "type", val: node.type });
   } else if (svc === "appsync") {
     if (node.auth_type) rows.push({ key: "auth", val: node.auth_type });
+  } else if (svc === "ecs") {
+    if (node.launch_type) rows.push({ key: "launch", val: node.launch_type });
+    if (node.task_count != null) rows.push({ key: "tasks", val: String(node.task_count) });
+  } else if (svc === "sns") {
+    if (node.subscription_count != null) rows.push({ key: "subs", val: String(node.subscription_count) });
+  } else if (svc === "cognito") {
+    if (node.user_count != null) rows.push({ key: "users", val: String(node.user_count) });
+  } else if (svc === "elb") {
+    if (node.scheme) rows.push({ key: "scheme", val: node.scheme });
+    if (node.lb_type) rows.push({ key: "type", val: node.lb_type });
+    if (node.vpc_id) rows.push({ key: "vpc", val: node.vpc_id });
+  } else if (svc === "secretsmanager") {
+    if (node.rotation_enabled != null) rows.push({ key: "rotation", val: node.rotation_enabled ? "enabled" : "disabled" });
+  } else if (svc === "kms") {
+    if (node.key_state) rows.push({ key: "state", val: node.key_state });
+    if (node.key_usage) rows.push({ key: "usage", val: node.key_usage });
   }
 
   // ARN — always last, truncated

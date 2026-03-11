@@ -110,6 +110,23 @@ function edgesForIds(edges, ids) {
   return edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target));
 }
 
+function orderByConnectivity(bucket, edges) {
+  const adj = new Map();
+  bucket.forEach((n) => adj.set(n.id, { in: [], out: [] }));
+  edges.forEach((e) => {
+    if (adj.has(e.source) && adj.has(e.target)) {
+      adj.get(e.source).out.push(e.target);
+      adj.get(e.target).in.push(e.source);
+    }
+  });
+  return [...bucket].sort((a, b) => {
+    const aIn = adj.get(a.id)?.in.length || 0;
+    const bIn = adj.get(b.id)?.in.length || 0;
+    if (aIn !== bIn) return aIn - bIn;
+    return stableLabel(a).localeCompare(stableLabel(b));
+  });
+}
+
 function layoutFlowGroup(nodes, edges, offsetX, offsetY) {
   const levels = buildLevels(nodes, edges);
   const buckets = new Map();
@@ -119,23 +136,33 @@ function layoutFlowGroup(nodes, edges, offsetX, offsetY) {
     buckets.get(level).push(node);
   });
 
+  const xSpacing = 340;
+  const ySpacing = 180;
+  const maxRowsPerColumn = 6;
+  const laneOffset = 170;
+
   const positioned = [];
-  Array.from(buckets.keys())
-    .sort((a, b) => a - b)
-    .forEach((level) => {
-      const bucket = [...(buckets.get(level) || [])].sort((a, b) => stableLabel(a).localeCompare(stableLabel(b)));
-      bucket.forEach((node, index) => {
-        const lane = Math.floor(index / 5);
-        const row = index % 5;
-        positioned.push({
-          ...node,
-          position: {
-            x: offsetX + level * 250 + lane * 72,
-            y: offsetY + row * 136,
-          },
-        });
+  const sortedLevels = Array.from(buckets.keys()).sort((a, b) => a - b);
+
+  sortedLevels.forEach((level) => {
+    const bucket = orderByConnectivity(buckets.get(level) || [], edges);
+    const totalInBucket = bucket.length;
+    const rowsPerColumn = Math.min(totalInBucket, maxRowsPerColumn);
+
+    bucket.forEach((node, index) => {
+      const lane = Math.floor(index / rowsPerColumn);
+      const row = index % rowsPerColumn;
+      const colSize = Math.min(rowsPerColumn, totalInBucket - lane * rowsPerColumn);
+      const yCenter = ((colSize - 1) * ySpacing) / 2;
+      positioned.push({
+        ...node,
+        position: {
+          x: offsetX + level * xSpacing + lane * laneOffset,
+          y: offsetY + row * ySpacing - yCenter,
+        },
       });
     });
+  });
   return positioned;
 }
 
@@ -161,8 +188,9 @@ function layoutCircularGroup(nodes, edges, centerX, centerY) {
       let cursor = 0;
       let ring = 0;
       while (cursor < bucket.length) {
-        const radius = 120 + level * 160 + ring * 110;
-        const capacity = Math.max(5, Math.floor((2 * Math.PI * radius) / 205));
+        const radius = 180 + level * 200 + ring * 160;
+        const minArc = 240;
+        const capacity = Math.max(4, Math.floor((2 * Math.PI * radius) / minArc));
         const count = Math.min(capacity, bucket.length - cursor);
         for (let index = 0; index < count; index += 1) {
           const angle = (Math.PI * 2 * index) / count + level * 0.16 + ring * 0.08;
@@ -207,7 +235,7 @@ function annotate(bounds, paddingX, paddingY, title, subtitle, tone) {
   };
 }
 
-export function layoutHybridGraph(nodes, edges, mode = "circular") {
+export function layoutHybridGraph(nodes, edges, mode = "flow") {
   const { components, isolated, connectedIds, filteredEdges } = splitByConnectivity(nodes, edges);
   const laidOut = [];
   const annotations = [];
@@ -222,8 +250,8 @@ export function layoutHybridGraph(nodes, edges, mode = "circular") {
     const groupEdges = edgesForIds(filteredEdges, ids);
     const nodesForGroup =
       mode === "flow"
-        ? layoutFlowGroup(component, groupEdges, 170 + column * 980, 180 + row * 760)
-        : layoutCircularGroup(component, groupEdges, 420 + column * 980, 400 + row * 860);
+        ? layoutFlowGroup(component, groupEdges, 170 + column * 1200, 180 + row * 960)
+        : layoutCircularGroup(component, groupEdges, 500 + column * 1200, 500 + row * 1100);
     nodesForGroup.forEach((node) => {
       maxConnectedX = Math.max(maxConnectedX, node.position.x);
       connectedNodes.push(node);
@@ -231,15 +259,15 @@ export function layoutHybridGraph(nodes, edges, mode = "circular") {
     });
   });
 
-  const isolatedBaseX = (maxConnectedX || 420) + 420;
+  const isolatedBaseX = (maxConnectedX || 420) + 500;
   const isolatedColumns = Math.max(3, Math.ceil(Math.sqrt(isolated.length || 1)));
   const isolatedNodes = [...isolated]
     .sort((a, b) => stableLabel(a).localeCompare(stableLabel(b)))
     .map((node, index) => ({
       ...node,
       position: {
-        x: isolatedBaseX + (index % isolatedColumns) * 220,
-        y: 180 + Math.floor(index / isolatedColumns) * 124,
+        x: isolatedBaseX + (index % isolatedColumns) * 260,
+        y: 180 + Math.floor(index / isolatedColumns) * 180,
       },
     }));
 
@@ -396,10 +424,11 @@ export function computeFocusSubgraph(nodes, edges, centerNodeId, depth) {
 
 export function classifyNodeRole(node, allEdges) {
   const svc = String(node.service || "").toLowerCase();
-  if (["apigateway", "eventbridge"].includes(svc)) return "trigger";
+  if (["apigateway", "eventbridge", "cloudfront", "route53", "appsync", "cognito", "elb"].includes(svc)) return "trigger";
   if (["lambda", "ec2", "ecs", "stepfunctions", "glue"].includes(svc)) return "processor";
   if (["dynamodb", "s3", "rds", "elasticache", "aurora", "redshift"].includes(svc)) return "storage";
   if (["sqs", "sns", "kinesis"].includes(svc)) return "queue";
+  if (["iam", "secretsmanager", "kms"].includes(svc)) return "unknown";
   // Fallback by connectivity
   const hasIn = allEdges.some((e) => e.target === node.id);
   const hasOut = allEdges.some((e) => e.source === node.id);
@@ -412,8 +441,8 @@ export function classifyNodeRole(node, allEdges) {
 
 const LANE_ORDER = ["trigger", "queue", "processor", "storage", "unknown"];
 const LANE_Y_BASE = 160;
-const LANE_SPACING = 240;
-const NODE_X_SPACING = 200;
+const LANE_SPACING = 300;
+const NODE_X_SPACING = 260;
 
 export function layoutSwimlane(nodes, edges) {
   if (!nodes.length) return { nodes: [], edges, annotations: [], componentCount: 1 };

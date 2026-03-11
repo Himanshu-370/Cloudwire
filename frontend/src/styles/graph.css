@@ -1,8 +1,8 @@
 .cloudwire-page {
   height: 100vh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   padding: 10px;
   overflow: hidden;
   background:
@@ -172,16 +172,18 @@
 
 .cloudwire-layout {
   display: flex;
+  flex: 1 1 0;
   min-height: 0;
-  height: 100%;
   overflow: hidden;
+  margin-top: 10px;
 }
 
 .sidebar-shell,
 .inspector-shell {
   border-radius: 0;
   padding: 16px 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -769,18 +771,64 @@
 }
 
 .graph-stage-warnings {
-  position: absolute;
-  bottom: 48px;
-  left: 16px;
-  right: 16px;
-  z-index: 5;
-  background: rgba(180, 120, 0, 0.12);
-  border: 1px solid rgba(255, 153, 0, 0.3);
+  flex-shrink: 0;
+  background: #070d14;
+  border-top: 1px solid rgba(255, 153, 0, 0.25);
   color: #cc8800;
   font-size: 11px;
-  letter-spacing: 0.08em;
-  padding: 5px 10px;
-  border-radius: 2px;
+  letter-spacing: 0.04em;
+  padding: 0;
+}
+.graph-warnings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: #cc8800;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.graph-warnings-toggle:hover {
+  background: rgba(255, 153, 0, 0.06);
+}
+.graph-warnings-perm-badge {
+  color: #ff6677;
+  margin-right: 10px;
+}
+.graph-warnings-other-badge {
+  color: #cc8800;
+}
+.graph-warnings-caret {
+  font-size: 9px;
+  opacity: 0.6;
+}
+.graph-warnings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 10px 6px;
+  max-height: 170px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(255, 153, 0, 0.15);
+}
+.graph-warnings-item {
+  padding: 3px 0;
+  font-size: 11px;
+  color: #a08040;
+  border-bottom: 1px solid rgba(255, 153, 0, 0.06);
+}
+.graph-warnings-item:last-child {
+  border-bottom: none;
+}
+.graph-warnings-item--perm {
+  color: #ff6677;
+}
+.graph-warnings-item--perm::before {
+  content: "⛔ ";
+  font-size: 10px;
 }
 
 .graph-stage-loading {

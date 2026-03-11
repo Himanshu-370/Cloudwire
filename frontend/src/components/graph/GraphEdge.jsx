@@ -17,10 +17,27 @@ function boundaryPoint(from, to, radius) {
 function curvedPath(source, target) {
   const dx = target.x - source.x;
   const dy = target.y - source.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+
+  // For mostly-horizontal edges (left→right flow), use smooth horizontal bezier
+  if (absDx > absDy * 0.6 && absDx > 60) {
+    const cx1 = source.x + dx * 0.4;
+    const cy1 = source.y;
+    const cx2 = target.x - dx * 0.4;
+    const cy2 = target.y;
+    const labelX = source.x + dx * 0.5;
+    const labelY = source.y + dy * 0.5 - 4;
+    return { path: `M${source.x},${source.y} C${cx1},${cy1} ${cx2},${cy2} ${target.x},${target.y}`, labelX, labelY };
+  }
+
+  // For short or vertical edges, use a gentle curve offset
+  const curvature = Math.min(0.2, 30 / (dist || 1));
   const mx = source.x + dx * 0.5;
   const my = source.y + dy * 0.5;
-  const cx = mx - dy * 0.15;
-  const cy = my + dx * 0.15;
+  const cx = mx - dy * curvature;
+  const cy = my + dx * curvature;
   return { path: `M${source.x},${source.y} Q${cx},${cy} ${target.x},${target.y}`, labelX: cx, labelY: cy };
 }
 
