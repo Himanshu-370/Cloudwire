@@ -1600,3 +1600,82 @@
   border-color: #00e7ff;
   color: #00e7ff;
 }
+
+/* ── Idle focus mode bar ─────────────────────────────────── */
+
+.focus-mode-bar--idle {
+  opacity: 0.55;
+}
+
+.focus-mode-bar--idle .focus-toggle-btn {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.focus-toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Floating viewport controls (near minimap) ───────────── */
+
+.canvas-viewport-controls {
+  display: flex;
+  gap: 2px;
+  background: rgba(5, 8, 13, 0.88);
+  border: 1px solid #0f1e2a;
+  padding: 2px;
+}
+
+.canvas-viewport-controls button {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #3a6a80;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.canvas-viewport-controls button:hover {
+  border-color: #ff9900;
+  color: #ff9900;
+  background: rgba(255, 153, 0, 0.08);
+}
+
+/* ── Inspector connection icon ───────────────────────────── */
+
+.inspector-connection-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.inspector-connection-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Sidebar layout section ──────────────────────────────── */
+
+.sidebar-layout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sidebar-layout-icon {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+}
+
+.sidebar-control-link.active {
+  color: #ff9900;
+  border-left-color: #ff9900;
+}

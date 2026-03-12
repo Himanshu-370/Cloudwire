@@ -73,7 +73,7 @@ export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, 
         strokeWidth={strokeWidth}
         opacity={opacity}
         strokeDasharray={dashArray}
-        markerEnd={`url(#arrow-${sourceNode.id})`}
+        markerEnd={`url(#arrow-${sourceNode.service})`}
         className="graph-edge-path"
       />
       {animated && highlighted && (

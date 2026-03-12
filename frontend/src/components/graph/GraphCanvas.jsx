@@ -64,6 +64,8 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
   const [localPositions, setLocalPositions] = useState({});
   const { viewport, setViewport, screenToGraph, zoomAtPoint, fitToNodes, centerNode, resetView } = useGraphViewport();
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   const prevLayoutRef = useRef(null);
 
@@ -290,11 +292,11 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
       panRef.current = {
         startX: event.clientX,
         startY: event.clientY,
-        startViewport: viewport,
+        startViewport: { ...viewportRef.current },
       };
       onClearSelection?.();
     },
-    [onClearSelection, viewport]
+    [onClearSelection]
   );
 
   const handleWheel = useCallback(
@@ -326,10 +328,10 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
       <div className="graph-canvas-footer">ZOOM {Math.round(viewport.scale * 100)}% · DRAG TO PAN · SCROLL TO ZOOM · CLICK NODE TO INSPECT</div>
       <svg ref={svgRef} className="graph-svg" onMouseDown={handleCanvasMouseDown} onDoubleClick={fitGraph}>
         <defs>
-          {nodesWithPositions.map((node) => {
-            const visual = getServiceVisual(node.service);
+          {[...new Set(nodesWithPositions.map((n) => n.service))].map((service) => {
+            const visual = getServiceVisual(service);
             return (
-              <marker key={node.id} id={`arrow-${node.id}`} markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <marker key={service} id={`arrow-${service}`} markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
                 <path d="M0,1 L0,9 L10,5 z" fill={visual.color} fillOpacity="0.8" />
               </marker>
             );
@@ -472,6 +474,12 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         </ViewportScaleContext.Provider>
       </svg>
       <div className="graph-canvas-corner">
+        <div className="canvas-viewport-controls">
+          <button onClick={fitGraph} title="Fit graph to view">FIT</button>
+          <button onClick={resetView} title="Reset zoom and pan">RESET</button>
+          <button onClick={() => zoomAtPoint(1.18, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom in">+</button>
+          <button onClick={() => zoomAtPoint(0.84, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom out">−</button>
+        </div>
         <Minimap
           nodes={nodesWithPositions}
           viewport={viewport}

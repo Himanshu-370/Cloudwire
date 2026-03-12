@@ -96,7 +96,10 @@ export function buildLevels(nodes, edges) {
     }
   }
 
-  const fallback = Math.max(0, ...Array.from(levels.values(), (value) => value || 0)) + 1;
+  // Cycle nodes — assign to one level past the deepest reachable level
+  let maxLevel = 0;
+  for (const v of levels.values()) if (v > maxLevel) maxLevel = v;
+  const fallback = maxLevel + 1;
   nodes.forEach((node) => {
     if (!levels.has(node.id)) {
       levels.set(node.id, fallback);  // all unreachable nodes at same level
@@ -211,14 +214,15 @@ function layoutCircularGroup(nodes, edges, centerX, centerY) {
 
 function computeBounds(nodes) {
   if (!nodes.length) return null;
-  const xs = nodes.map((node) => node.position.x);
-  const ys = nodes.map((node) => node.position.y);
-  return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minY: Math.min(...ys),
-    maxY: Math.max(...ys),
-  };
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const node of nodes) {
+    const { x, y } = node.position;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
 }
 
 function annotate(bounds, paddingX, paddingY, title, subtitle, tone) {
@@ -456,8 +460,12 @@ export function layoutSwimlane(nodes, edges) {
   });
 
   // Sort within each lane by connectivity (most connections first)
-  const connectionCount = (id) =>
-    edges.filter((e) => e.source === id || e.target === id).length;
+  const degreeMap = new Map();
+  edges.forEach((e) => {
+    degreeMap.set(e.source, (degreeMap.get(e.source) || 0) + 1);
+    degreeMap.set(e.target, (degreeMap.get(e.target) || 0) + 1);
+  });
+  const connectionCount = (id) => degreeMap.get(id) || 0;
   Object.values(lanes).forEach((group) =>
     group.sort((a, b) => connectionCount(b.id) - connectionCount(a.id))
   );
@@ -596,8 +604,16 @@ export function detectPatterns(nodes, edges) {
   const patterns = [];
   const svcMap = new Map(nodes.map((n) => [n.id, String(n.service || "").toLowerCase()]));
 
-  const edgesFrom = (id) => edges.filter((e) => e.source === id).map((e) => e.target);
-  const edgesTo = (id) => edges.filter((e) => e.target === id).map((e) => e.source);
+  // Pre-build adjacency maps for O(1) lookups
+  const fwdAdj = new Map();
+  const revAdj = new Map();
+  nodes.forEach((n) => { fwdAdj.set(n.id, []); revAdj.set(n.id, []); });
+  edges.forEach((e) => {
+    if (fwdAdj.has(e.source)) fwdAdj.get(e.source).push(e.target);
+    if (revAdj.has(e.target)) revAdj.get(e.target).push(e.source);
+  });
+  const edgesFrom = (id) => fwdAdj.get(id) || [];
+  const edgesTo = (id) => revAdj.get(id) || [];
 
   // API Backend: apigateway → lambda → (dynamodb|s3|rds)
   nodes.forEach((n) => {

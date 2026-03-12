@@ -10,12 +10,14 @@ export function Minimap({ nodes, viewport, containerRef, onPan }) {
 
   if (!nodes.length) return null;
 
-  const xs = nodes.map((n) => n.position.x);
-  const ys = nodes.map((n) => n.position.y);
-  const minX = Math.min(...xs) - 80;
-  const maxX = Math.max(...xs) + 80;
-  const minY = Math.min(...ys) - 80;
-  const maxY = Math.max(...ys) + 80;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    if (n.position.x < minX) minX = n.position.x;
+    if (n.position.x > maxX) maxX = n.position.x;
+    if (n.position.y < minY) minY = n.position.y;
+    if (n.position.y > maxY) maxY = n.position.y;
+  }
+  minX -= 80; maxX += 80; minY -= 80; maxY += 80;
   const gW = Math.max(1, maxX - minX);
   const gH = Math.max(1, maxY - minY);
 

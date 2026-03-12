@@ -45,10 +45,19 @@ export function useGraphViewport() {
     const height = container.clientHeight;
     if (!width || !height) return;
 
-    const minX = Math.min(...nodes.map((node) => node.position.x - (node.width || 120) / 2));
-    const maxX = Math.max(...nodes.map((node) => node.position.x + (node.width || 120) / 2));
-    const minY = Math.min(...nodes.map((node) => node.position.y - (node.height || 80) / 2));
-    const maxY = Math.max(...nodes.map((node) => node.position.y + (node.height || 80) / 2));
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const node of nodes) {
+      const hw = (node.width || 120) / 2;
+      const hh = (node.height || 80) / 2;
+      const left = node.position.x - hw;
+      const right = node.position.x + hw;
+      const top = node.position.y - hh;
+      const bottom = node.position.y + hh;
+      if (left < minX) minX = left;
+      if (right > maxX) maxX = right;
+      if (top < minY) minY = top;
+      if (bottom > maxY) maxY = bottom;
+    }
 
     const graphWidth = Math.max(1, maxX - minX);
     const graphHeight = Math.max(1, maxY - minY);

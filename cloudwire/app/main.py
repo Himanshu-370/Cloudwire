@@ -29,6 +29,7 @@ from .models import (
     ScanJobCreateResponse,
     ScanJobStatusResponse,
     ScanRequest,
+    normalize_service_name,
 )
 from .scan_jobs import ScanJobStore
 from .scanner import AWSGraphScanner, ScanCancelledError, ScanExecutionOptions
@@ -68,15 +69,9 @@ def _error_payload(code: str, message: str, details: Optional[Any] = None) -> Di
 
 
 def _normalize_services(services: List[str]) -> List[str]:
-    aliases = {
-        "api-gateway": "apigateway",
-        "apigw": "apigateway",
-        "event-bridge": "eventbridge",
-        "events": "eventbridge",
-    }
     normalized = []
     for service in services:
-        key = aliases.get(service.lower().strip(), service.lower().strip())
+        key = normalize_service_name(service)
         if key and key not in normalized:
             normalized.append(key)
     return normalized

@@ -16,18 +16,7 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from .graph_store import GraphStore
-from .models import ScanMode
-
-
-def _normalize_service_name(service: str) -> str:
-    key = service.lower().strip()
-    aliases = {
-        "api-gateway": "apigateway",
-        "apigw": "apigateway",
-        "event-bridge": "eventbridge",
-        "events": "eventbridge",
-    }
-    return aliases.get(key, key)
+from .models import ScanMode, normalize_service_name as _normalize_service_name
 
 
 def _safe_list(value: Any) -> List[Any]:
@@ -102,6 +91,7 @@ class AWSGraphScanner:
         self.store = store
         self.options = options
         self._region: str = "unknown"
+        self._account_id: str = "unknown"
         self.service_scanners: Dict[str, Callable[[boto3.session.Session], None]] = {
             "apigateway":    self._scan_apigateway,
             "lambda":        self._scan_lambda,
@@ -148,6 +138,7 @@ class AWSGraphScanner:
     ) -> Dict[str, Any]:
         normalized_services = list(dict.fromkeys(_normalize_service_name(service) for service in services))
         self._region = region
+        self._account_id = account_id
         self.store.reset(region=region, services=normalized_services)
         self._iam_role_cache = {}
         self._api_call_counts = {}
@@ -258,8 +249,10 @@ class AWSGraphScanner:
         on_result: Callable[[Future[Any], Any], None],
     ) -> None:
         pending = set(future_map)
+        cancel_attempted = False
         while pending:
-            if self._is_cancelled():
+            if self._is_cancelled() and not cancel_attempted:
+                cancel_attempted = True
                 for future in list(pending):
                     if future.cancel():
                         pending.remove(future)
@@ -276,6 +269,14 @@ class AWSGraphScanner:
 
     def _make_node_id(self, service: str, resource: str) -> str:
         return f"{service}:{resource}"
+
+    def _find_node_by_attr(self, service: str, attr: str, value: str) -> Optional[str]:
+        """Find an existing node of a given service where attr == value. Returns node_id or None."""
+        with self.store._lock:
+            for node_id, attrs in self.store.graph.nodes(data=True):
+                if attrs.get("service") == service and attrs.get(attr) == value:
+                    return node_id
+        return None
 
     def _add_arn_node(self, arn: str, *, label: Optional[str] = None, node_type: str = "resource") -> str:
         self._ensure_not_cancelled()
@@ -993,7 +994,8 @@ class AWSGraphScanner:
             return
         self._ensure_not_cancelled()
         rule_arn = rule.get("Arn") or f"rule:{rule.get('Name')}"
-        rule_node = self._make_node_id(self._service_from_arn(rule_arn), rule_arn)
+        # Mirror the same node ID construction used in _scan_eventbridge
+        rule_node = self._add_arn_node(rule_arn, label=rule.get("Name"), node_type="rule")
         for target in targets:
             self._ensure_not_cancelled()
             target_arn = target.get("Arn")
@@ -1560,7 +1562,7 @@ class AWSGraphScanner:
 
         for name in stream_names:
             self._ensure_not_cancelled()
-            arn = f"arn:aws:kinesis:{self._region}:*:stream/{name}"
+            arn = f"arn:aws:kinesis:{self._region}:{self._account_id}:stream/{name}"
             node_id = self._make_node_id("kinesis", name)
             self._node(node_id, label=name, service="kinesis", type="stream", arn=arn)
 
@@ -1580,9 +1582,9 @@ class AWSGraphScanner:
                 node_id = self._add_arn_node(arn, label=role.get("RoleName"), node_type="role")
                 self._node(node_id, service="iam", created=str(role.get("CreateDate", "")))
                 count += 1
-                if count >= 200:
-                    self.store.add_warning("IAM: showing first 200 roles only.")
-                    return
+            if count >= 200:
+                self.store.add_warning("IAM: showing first 200 roles only.")
+                return
 
     # ── Cognito ──────────────────────────────────────────────────────────────
 
@@ -1608,7 +1610,7 @@ class AWSGraphScanner:
             for pool in page.get("UserPools", []):
                 self._ensure_not_cancelled()
                 pool_id = pool.get("Id", "")
-                arn = f"arn:aws:cognito-idp:{self._region}:*:userpool/{pool_id}"
+                arn = f"arn:aws:cognito-idp:{self._region}:{self._account_id}:userpool/{pool_id}"
                 node_id = self._make_node_id("cognito", pool_id)
                 self._node(node_id, label=pool.get("Name", pool_id), service="cognito", type="user_pool", arn=arn)
                 pool_nodes.append((pool_id, node_id))
@@ -1739,7 +1741,7 @@ class AWSGraphScanner:
                 cluster_id = cluster.get("CacheClusterId", "")
                 node_id = self._add_arn_node(arn, label=cluster_id, node_type="cluster") if arn else self._make_node_id("elasticache", cluster_id)
                 if not arn:
-                    arn = f"arn:aws:elasticache:{self._region}:*:cluster/{cluster_id}"
+                    arn = f"arn:aws:elasticache:{self._region}:{self._account_id}:cluster/{cluster_id}"
                     self._node(node_id, label=cluster_id, service="elasticache", type="cluster", arn=arn)
                 self._node(
                     node_id,
@@ -1767,7 +1769,7 @@ class AWSGraphScanner:
             page = client.list_jobs(**kwargs)
             for job_name in page.get("JobNames", []):
                 self._ensure_not_cancelled()
-                arn = f"arn:aws:glue:{self._region}:*:job/{job_name}"
+                arn = f"arn:aws:glue:{self._region}:{self._account_id}:job/{job_name}"
                 node_id = self._make_node_id("glue", job_name)
                 self._node(node_id, label=job_name, service="glue", type="job", arn=arn)
                 job_names.append(job_name)
@@ -1824,7 +1826,7 @@ class AWSGraphScanner:
         for conn_name in _safe_list(job.get("Connections", {}).get("Connections")):
             conn_node = self._make_node_id("glue", f"connection:{conn_name}")
             self._node(conn_node, label=conn_name, service="glue", type="connection",
-                        arn=f"arn:aws:glue:{self._region}:*:connection/{conn_name}")
+                        arn=f"arn:aws:glue:{self._region}:{self._account_id}:connection/{conn_name}")
             self.store.add_edge(job_node, conn_node, relationship="uses", via="glue_connection")
 
     def _scan_glue_crawlers(self, client: Any) -> None:
@@ -1848,7 +1850,7 @@ class AWSGraphScanner:
                 name = crawler.get("Name", "")
                 if not name:
                     continue
-                arn = f"arn:aws:glue:{self._region}:*:crawler/{name}"
+                arn = f"arn:aws:glue:{self._region}:{self._account_id}:crawler/{name}"
                 node_id = self._make_node_id("glue", f"crawler:{name}")
                 self._node(node_id, label=name, service="glue", type="crawler", arn=arn,
                            state=crawler.get("State"))
@@ -1879,7 +1881,7 @@ class AWSGraphScanner:
                 if db_name:
                     db_node = self._make_node_id("glue", f"database:{db_name}")
                     self._node(db_node, label=db_name, service="glue", type="database",
-                               arn=f"arn:aws:glue:{self._region}:*:database/{db_name}")
+                               arn=f"arn:aws:glue:{self._region}:{self._account_id}:database/{db_name}")
                     self.store.add_edge(node_id, db_node, relationship="populates",
                                         via="glue_crawler_output")
 
@@ -1910,7 +1912,7 @@ class AWSGraphScanner:
                     continue
                 node_id = self._make_node_id("glue", f"trigger:{name}")
                 self._node(node_id, label=name, service="glue", type="trigger",
-                           arn=f"arn:aws:glue:{self._region}:*:trigger/{name}",
+                           arn=f"arn:aws:glue:{self._region}:{self._account_id}:trigger/{name}",
                            trigger_type=trigger.get("Type"), state=trigger.get("State"))
 
                 # Trigger → job/crawler actions
@@ -2119,8 +2121,13 @@ class AWSGraphScanner:
             target_svc = self._R53_ALIAS_ZONE_TO_SERVICE.get(alias["zone"])
             dns = alias["dns"]
             if target_svc == "cloudfront" and ".cloudfront.net" in dns:
-                cf_node = self._make_node_id("cloudfront", dns)
-                self._node(cf_node, label=dns, service="cloudfront", type="distribution", arn=dns, domain=dns)
+                # Look up existing CloudFront node by domain, or create a phantom
+                existing = self._find_node_by_attr("cloudfront", "domain", dns)
+                if existing:
+                    cf_node = existing
+                else:
+                    cf_node = self._make_node_id("cloudfront", dns)
+                    self._node(cf_node, label=dns, service="cloudfront", type="distribution", domain=dns, phantom=True)
                 self.store.add_edge(zone_node, cf_node, relationship="routes_to", via="route53_alias")
             elif "execute-api" in dns:
                 # Phase 3, Item 9: Route53 → API Gateway
@@ -2137,9 +2144,13 @@ class AWSGraphScanner:
                                arn=f"arn:aws:s3:::{bucket_name}")
                     self.store.add_edge(zone_node, s3_node, relationship="routes_to", via="route53_alias")
             elif target_svc == "elb":
-                # Route53 → ELB
-                elb_node = self._make_node_id("elb", dns)
-                self._node(elb_node, label=dns, service="elb", type="load_balancer")
+                # Look up existing ELB node by domain, or create a phantom
+                existing = self._find_node_by_attr("elb", "label", dns)
+                if existing:
+                    elb_node = existing
+                else:
+                    elb_node = self._make_node_id("elb", dns)
+                    self._node(elb_node, label=dns, service="elb", type="load_balancer", phantom=True)
                 self.store.add_edge(zone_node, elb_node, relationship="routes_to", via="route53_alias")
 
     # ── Redshift ──────────────────────────────────────────────────────────────
@@ -2154,7 +2165,7 @@ class AWSGraphScanner:
                 for cluster in page.get("Clusters", []):
                     self._ensure_not_cancelled()
                     cluster_id = cluster.get("ClusterIdentifier", "")
-                    arn = f"arn:aws:redshift:{self._region}:*:cluster:{cluster_id}"
+                    arn = f"arn:aws:redshift:{self._region}:{self._account_id}:cluster:{cluster_id}"
                     node_id = self._make_node_id("redshift", cluster_id)
                     self._node(
                         node_id,
@@ -2196,3 +2207,5 @@ class AWSGraphScanner:
 
         if discovered == 0:
             self.store.add_warning(f"{service_name} scanner is not specialized yet; no resources discovered.")
+        else:
+            self.store.add_warning(f"{service_name}: generic scan found {discovered} resource(s) but relationship discovery is not available for this service.")

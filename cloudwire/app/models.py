@@ -1,6 +1,21 @@
+import re
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
+
+_REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
+
+SERVICE_ALIASES: Dict[str, str] = {
+    "api-gateway": "apigateway",
+    "apigw": "apigateway",
+    "event-bridge": "eventbridge",
+    "events": "eventbridge",
+}
+
+
+def normalize_service_name(service: str) -> str:
+    key = service.lower().strip()
+    return SERVICE_ALIASES.get(key, key)
 
 
 DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb"]
@@ -20,8 +35,8 @@ class ScanRequest(BaseModel):
     @classmethod
     def validate_region(cls, value: str) -> str:
         cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("region must not be empty")
+        if not cleaned or not _REGION_RE.match(cleaned):
+            raise ValueError(f"'{cleaned}' is not a valid AWS region identifier (e.g. us-east-1)")
         return cleaned
 
     @field_validator("services")

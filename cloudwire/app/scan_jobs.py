@@ -66,7 +66,12 @@ class ScanJobStore:
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="scan-job")
 
     def shutdown(self) -> None:
-        self._executor.shutdown(wait=False)
+        # Request cancellation for all active jobs before shutting down
+        with self._lock:
+            for job in self._jobs.values():
+                if job.status in {"queued", "running"}:
+                    job.cancellation_requested = True
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
     def _prune_terminal_jobs_locked(self) -> None:
         terminal_states = {"completed", "failed", "cancelled"}

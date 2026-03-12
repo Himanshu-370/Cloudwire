@@ -1,32 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AWS_REGIONS } from "../../lib/awsRegions";
-
-// Service colours — kept in sync with serviceVisuals.jsx palette
-const SERVICE_COLORS = {
-  apigateway:    "#ff9900",
-  eventbridge:   "#e05252",
-  lambda:        "#ff9900",
-  ec2:           "#e8855a",
-  ecs:           "#e8855a",
-  stepfunctions: "#00b4e0",
-  glue:          "#00b4e0",
-  sqs:           "#ff4f8b",
-  sns:           "#ff4f8b",
-  kinesis:       "#c766d4",
-  dynamodb:      "#7b2d8b",
-  s3:            "#3d9970",
-  rds:           "#3d9970",
-  elasticache:   "#3d9970",
-  redshift:      "#7b2d8b",
-  cloudfront:    "#00e7ff",
-  route53:       "#00e7ff",
-  appsync:       "#00b4e0",
-  iam:              "#cc6633",
-  cognito:          "#cc6633",
-  secretsmanager:   "#cc6633",
-  kms:              "#cc6633",
-  elb:              "#ff9900",
-};
+import { getServiceVisual } from "../../lib/serviceVisuals.jsx";
 
 const AWS_SERVICE_GROUPS = [
   {
@@ -126,7 +100,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
               <span
                 key={v}
                 className="svc-select-dot"
-                style={{ background: SERVICE_COLORS[v] || "#4a7a90" }}
+                style={{ background: getServiceVisual(v).color }}
               />
             ))}
           </span>
@@ -155,7 +129,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
                 <div className="svc-select-group-label">{group.label}</div>
                 {group.services.map((svc) => {
                   const checked = selectedServices.includes(svc.value);
-                  const color = SERVICE_COLORS[svc.value] || "#4a7a90";
+                  const color = getServiceVisual(svc.value).color;
                   return (
                     <label key={svc.value} className={`svc-select-item ${checked ? "checked" : ""}`}>
                       <input
@@ -185,57 +159,6 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
   );
 }
 
-const LAYOUT_OPTIONS = [
-  { value: "circular",  label: "Circular",  icon: "⬡" },
-  { value: "flow",      label: "Flow",      icon: "⇶" },
-  { value: "swimlane",  label: "Swimlane",  icon: "☰" },
-];
-
-function LayoutDropdown({ layoutMode, onLayoutModeChange }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function handleClick(e) {
-      if (!containerRef.current?.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  const current = LAYOUT_OPTIONS.find((o) => o.value === layoutMode) || LAYOUT_OPTIONS[0];
-
-  return (
-    <div ref={containerRef} className="layout-select-wrap">
-      <button
-        className={`layout-select-trigger ${open ? "open" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        title="Choose graph layout"
-      >
-        <span className="layout-select-trigger-icon">{current.icon}</span>
-        <span>{current.label}</span>
-        <span className="layout-select-caret">{open ? "▲" : "▼"}</span>
-      </button>
-
-      {open && (
-        <div className="layout-select-panel">
-          {LAYOUT_OPTIONS.map((opt) => (
-            <div
-              key={opt.value}
-              className={`layout-select-item ${layoutMode === opt.value ? "active" : ""}`}
-              onClick={() => { onLayoutModeChange(opt.value); setOpen(false); }}
-            >
-              <span className="layout-select-item-icon">{opt.icon}</span>
-              <span>{opt.label}</span>
-              {layoutMode === opt.value && <span className="layout-select-item-check">✓</span>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function TopBar({
   region,
@@ -249,8 +172,6 @@ export function TopBar({
   scanLoading,
   jobStatus,
   statusLabel,
-  layoutMode,
-  onLayoutModeChange,
   forceRefresh,
   onForceRefreshChange,
   warnings,
@@ -298,8 +219,6 @@ export function TopBar({
           <option value="deep">Deep</option>
         </select>
 
-        <LayoutDropdown layoutMode={layoutMode} onLayoutModeChange={onLayoutModeChange} />
-
         <select className="topbar-compact-select topbar-region-select" value={region} onChange={(event) => onRegionChange(event.target.value)}>
           {AWS_REGIONS.map((awsRegion) => (
             <option key={awsRegion.value} value={awsRegion.value}>
@@ -308,26 +227,28 @@ export function TopBar({
           ))}
         </select>
 
-        <label className="topbar-force-refresh-label">
+        <label className="topbar-force-refresh-label" title="Bypass cache and re-scan all resources">
           <input
             type="checkbox"
             checked={forceRefresh}
             onChange={(e) => onForceRefreshChange(e.target.checked)}
           />
-          Force refresh
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 2L10 5H7M2 10L2 7H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 4.5A4 4 0 0 1 9.5 3.5M9.5 7.5A4 4 0 0 1 2.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
         </label>
 
-        <button className="topbar-primary-btn" onClick={onRunScan} disabled={scanLoading || selectedServices.length === 0}>
-          {scanLoading ? "SCANNING..." : "SCAN AWS"}
-        </button>
-
-        <button
-          className="topbar-secondary-btn"
-          onClick={onStopScan}
-          disabled={!scanLoading || !jobStatus || Boolean(jobStatus?.cancellation_requested)}
-        >
-          STOP
-        </button>
+        {scanLoading ? (
+          <button
+            className="topbar-secondary-btn"
+            onClick={onStopScan}
+            disabled={!jobStatus || Boolean(jobStatus?.cancellation_requested)}
+          >
+            {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
+          </button>
+        ) : (
+          <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>
+            SCAN AWS
+          </button>
+        )}
       </div>
     </header>
   );

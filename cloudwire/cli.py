@@ -114,3 +114,8 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
         )
     except KeyboardInterrupt:
         click.echo("\n  Stopped.")
+    except OSError as exc:
+        raise click.ClickException(
+            f"Failed to start server on {host}:{port} — {exc}. "
+            f"Try a different port with --port <number>."
+        ) from exc

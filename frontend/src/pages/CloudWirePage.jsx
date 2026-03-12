@@ -41,7 +41,7 @@ function WarningsPanel({ warnings }) {
   const otherWarnings = warnings.filter((w) => !w.startsWith("[permission]"));
 
   return (
-    <div className={`graph-stage-warnings ${expanded ? "expanded" : ""}`}>
+    <div className="graph-stage-warnings">
       <button className="graph-warnings-toggle" onClick={() => setExpanded((v) => !v)}>
         <span>
           {permissionWarnings.length > 0 && (
@@ -224,21 +224,15 @@ export default function CloudWirePage() {
 
   // Search across all visible nodes (before clustering)
   const SEARCH_LIMIT = 120;
-  const filteredSearchNodes = useMemo(() => {
+  const { filteredSearchNodes, searchTruncated } = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return visibleNodes.slice(0, SEARCH_LIMIT);
-    return visibleNodes
-      .filter((node) => `${node.id} ${node.label || ""} ${node.service || ""}`.toLowerCase().includes(q))
-      .slice(0, SEARCH_LIMIT);
-  }, [visibleNodes, query]);
-
-  // FIX #13: track whether search results were truncated
-  const searchTruncated = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const total = q
-      ? visibleNodes.filter((n) => `${n.id} ${n.label || ""} ${n.service || ""}`.toLowerCase().includes(q)).length
-      : visibleNodes.length;
-    return total > SEARCH_LIMIT ? total : 0;
+    const matched = q
+      ? visibleNodes.filter((node) => `${node.id} ${node.label || ""} ${node.service || ""}`.toLowerCase().includes(q))
+      : visibleNodes;
+    return {
+      filteredSearchNodes: matched.slice(0, SEARCH_LIMIT),
+      searchTruncated: matched.length > SEARCH_LIMIT ? matched.length : 0,
+    };
   }, [visibleNodes, query]);
 
   const stats = useMemo(
@@ -246,9 +240,8 @@ export default function CloudWirePage() {
       Resources: graphNodes.length,
       Connections: graphEdges.length,
       Groups: laidOutGraph.componentCount,
-      Isolated: showIsolated ? isolatedNodes.length : `${isolatedNodes.length} hidden`,
     }),
-    [graphEdges.length, graphNodes.length, laidOutGraph.componentCount, isolatedNodes.length, showIsolated]
+    [graphEdges.length, graphNodes.length, laidOutGraph.componentCount]
   );
 
   useEffect(() => {
@@ -383,8 +376,6 @@ export default function CloudWirePage() {
         scanLoading={scanLoading}
         jobStatus={jobStatus}
         statusLabel={formatJobStatusLabel(jobStatus)}
-        layoutMode={layoutMode}
-        onLayoutModeChange={changeLayout}
         forceRefresh={forceRefresh}
         onForceRefreshChange={setForceRefresh}
         warnings={jobStatus?.warnings || []}
@@ -413,10 +404,8 @@ export default function CloudWirePage() {
           onToggleIsolated={() => setShowIsolated((v) => !v)}
           isolatedCount={isolatedNodes.length}
           stats={stats}
-          onFitGraph={() => graphRef.current?.fitGraph()}
-          onResetView={() => graphRef.current?.resetView()}
-          onZoomIn={() => graphRef.current?.zoomIn()}
-          onZoomOut={() => graphRef.current?.zoomOut()}
+          layoutMode={layoutMode}
+          onLayoutModeChange={changeLayout}
           query={query}
           onQueryChange={setQuery}
           filteredNodes={filteredSearchNodes}
@@ -457,7 +446,7 @@ export default function CloudWirePage() {
             <div className="graph-empty-state">
               <div className="graph-empty-title">{isolatedNodes.length} resources have no connections</div>
               <div className="graph-empty-hint">
-                Enable <strong>Show Isolated</strong> in the sidebar to display them, or scan related services together (e.g. SNS + Lambda) to see edges.
+                Click <strong>Disconnected</strong> in the sidebar to display them, or scan related services together (e.g. SNS + Lambda) to see edges.
               </div>
             </div>
           )}
@@ -469,55 +458,52 @@ export default function CloudWirePage() {
             </div>
           )}
 
-          {(selectedNodeId || pathFinderMode) && (
-            <div className="focus-mode-bar">
-              <span className="focus-mode-label">
-                {pathFinderMode
-                  ? (pathSource ? `PATH: select destination node` : "PATH FINDER: select source node")
-                  : focusModeActive
-                  ? `Focus: ${focusDepth}-hop view`
-                  : "Select a mode"}
-              </span>
-              <div className="focus-mode-controls">
-                {selectedNodeId && focusModeActive && (
-                  <>
-                    <button className={`focus-depth-btn ${focusDepth === 1 ? "active" : ""}`} onClick={() => setFocusDepth(1)}>1 hop</button>
-                    <button className={`focus-depth-btn ${focusDepth === 2 ? "active" : ""}`} onClick={() => setFocusDepth(2)}>2 hops</button>
-                    <button className={`focus-depth-btn ${focusDepth === 3 ? "active" : ""}`} onClick={() => setFocusDepth(3)}>3 hops</button>
-                  </>
-                )}
-                {selectedNodeId && (
-                  <button
-                    className={`focus-toggle-btn ${blastRadiusMode ? "active" : ""}`}
-                    onClick={() => setBlastRadiusMode((v) => !v)}
-                    title="Show what this resource affects (blast radius)"
-                  >
-                    {blastRadiusMode ? "EXIT BLAST" : "BLAST RADIUS"}
-                  </button>
-                )}
-                {selectedNodeId && (
-                  <button
-                    className={`focus-toggle-btn ${focusModeActive ? "active" : ""}`}
-                    onClick={() => setFocusModeActive((v) => !v)}
-                  >
-                    {focusModeActive ? "EXIT FOCUS" : "FOCUS"}
-                  </button>
-                )}
-                <button
-                  className={`focus-toggle-btn ${pathFinderMode ? "active" : ""}`}
-                  onClick={() => {
-                    const next = !pathFinderMode;
-                    setPathFinderMode(next);
-                    // Auto-use the currently selected node as path source
-                    if (next && selectedNodeId) setPathSource(selectedNodeId);
-                  }}
-                  title="Find shortest path between two nodes"
-                >
-                  {pathFinderMode ? "EXIT PATH" : "PATH FINDER"}
-                </button>
-              </div>
+          <div className={`focus-mode-bar ${!selectedNodeId && !pathFinderMode ? "focus-mode-bar--idle" : ""}`}>
+            <span className="focus-mode-label">
+              {pathFinderMode
+                ? (pathSource ? `PATH: select destination node` : "PATH FINDER: select source node")
+                : !selectedNodeId
+                ? "Select a node to inspect, focus, or trace paths"
+                : focusModeActive
+                ? `Focus: ${focusDepth}-hop view`
+                : "Select a mode"}
+            </span>
+            <div className="focus-mode-controls">
+              {selectedNodeId && focusModeActive && (
+                <>
+                  <button className={`focus-depth-btn ${focusDepth === 1 ? "active" : ""}`} onClick={() => setFocusDepth(1)}>1 hop</button>
+                  <button className={`focus-depth-btn ${focusDepth === 2 ? "active" : ""}`} onClick={() => setFocusDepth(2)}>2 hops</button>
+                  <button className={`focus-depth-btn ${focusDepth === 3 ? "active" : ""}`} onClick={() => setFocusDepth(3)}>3 hops</button>
+                </>
+              )}
+              <button
+                className={`focus-toggle-btn ${blastRadiusMode ? "active" : ""}`}
+                onClick={() => setBlastRadiusMode((v) => !v)}
+                title="Show what this resource affects (blast radius)"
+                disabled={!selectedNodeId}
+              >
+                {blastRadiusMode ? "EXIT BLAST" : "BLAST RADIUS"}
+              </button>
+              <button
+                className={`focus-toggle-btn ${focusModeActive ? "active" : ""}`}
+                onClick={() => setFocusModeActive((v) => !v)}
+                disabled={!selectedNodeId}
+              >
+                {focusModeActive ? "EXIT FOCUS" : "FOCUS"}
+              </button>
+              <button
+                className={`focus-toggle-btn ${pathFinderMode ? "active" : ""}`}
+                onClick={() => {
+                  const next = !pathFinderMode;
+                  setPathFinderMode(next);
+                  if (next && selectedNodeId) setPathSource(selectedNodeId);
+                }}
+                title="Find shortest path between two nodes"
+              >
+                {pathFinderMode ? "EXIT PATH" : "PATH FINDER"}
+              </button>
             </div>
-          )}
+          </div>
 
           {showSummary && (
             <div className="summary-panel">
@@ -554,17 +540,6 @@ export default function CloudWirePage() {
               title="Animate data flow along edges"
             >
               ▶ FLOW
-            </button>
-            <button
-              className={`graph-toolbar-btn ${pathFinderMode ? "active" : ""}`}
-              onClick={() => {
-                const next = !pathFinderMode;
-                setPathFinderMode(next);
-                if (next && selectedNodeId) setPathSource(selectedNodeId);
-              }}
-              title="Find shortest path between two nodes — click source then destination"
-            >
-              PATH FINDER
             </button>
             <button
               className="graph-toolbar-btn"
@@ -604,6 +579,7 @@ export default function CloudWirePage() {
         {resourceDetails && (
           <InspectorPanel
             resourceDetails={resourceDetails}
+            allNodes={visibleNodes}
             onClose={() => {
               setSelectedNodeId(null);
               setResourceDetails(null);
@@ -617,7 +593,7 @@ export default function CloudWirePage() {
       </div>
 
       {jobStatus?.warnings?.length > 0 && (
-        <WarningsPanel warnings={jobStatus.warnings} />
+        <WarningsPanel key={currentJobId} warnings={jobStatus.warnings} />
       )}
     </div>
   );

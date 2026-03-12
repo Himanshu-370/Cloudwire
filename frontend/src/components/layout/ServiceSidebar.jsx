@@ -12,10 +12,6 @@ export function ServiceSidebar({
   onToggleIsolated,
   isolatedCount,
   stats,
-  onFitGraph,
-  onResetView,
-  onZoomIn,
-  onZoomOut,
   query,
   onQueryChange,
   filteredNodes,
@@ -23,6 +19,8 @@ export function ServiceSidebar({
   onSelectNode,
   totalNodes,
   searchTruncated,
+  layoutMode,
+  onLayoutModeChange,
 }) {
   const totalResources = Object.values(serviceCounts).reduce((total, value) => total + value, 0);
 
@@ -76,7 +74,7 @@ export function ServiceSidebar({
             className={`sidebar-isolated-toggle ${showIsolated ? "active" : ""}`}
             onClick={onToggleIsolated}
           >
-            <span>Isolated nodes</span>
+            <span>Disconnected</span>
             <span className="sidebar-row-count">{isolatedCount} {showIsolated ? "shown" : "hidden"}</span>
           </button>
         </section>
@@ -95,16 +93,19 @@ export function ServiceSidebar({
       </section>
 
       <section className="sidebar-block">
-        <div className="sidebar-section-title">Controls</div>
-        <div className="sidebar-control-list">
+        <div className="sidebar-section-title">Layout</div>
+        <div className="sidebar-layout-list">
           {[
-            ["Fit Graph", onFitGraph],
-            ["Reset View", onResetView],
-            ["Zoom In", onZoomIn],
-            ["Zoom Out", onZoomOut],
-          ].map(([label, handler]) => (
-            <button key={label} className="sidebar-control-link" onClick={handler}>
-              {label}
+            { value: "circular", label: "Circular", icon: "⬡" },
+            { value: "flow", label: "Flow", icon: "⇶" },
+            { value: "swimlane", label: "Swimlane", icon: "☰" },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              className={`sidebar-control-link ${layoutMode === opt.value ? "active" : ""}`}
+              onClick={() => onLayoutModeChange(opt.value)}
+            >
+              <span className="sidebar-layout-icon">{opt.icon}</span> {opt.label}
             </button>
           ))}
         </div>
