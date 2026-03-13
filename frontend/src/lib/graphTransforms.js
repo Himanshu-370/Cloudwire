@@ -344,16 +344,25 @@ export function partitionByConnectivity(nodes, edges) {
   };
 }
 
-// Collapse nodes of services in collapsedServices (a Set<string>) into single cluster nodes.
-// Edges are rerouted to/from the cluster node and duplicates removed.
+// Collapse ISOLATED nodes of collapsed services into cluster nodes.
+// Connected nodes of collapsed services remain as individual nodes.
+// Edges involving only isolated nodes are rerouted; connected node edges stay as-is.
 export function buildClusteredGraph(nodes, edges, collapsedServices) {
   if (!collapsedServices || collapsedServices.size === 0) return { nodes, edges };
+
+  // Determine which nodes have connections
+  const connectedIds = new Set();
+  edges.forEach((e) => {
+    connectedIds.add(e.source);
+    connectedIds.add(e.target);
+  });
 
   const nodeToCluster = new Map();
   const clusterData = new Map();
 
   nodes.forEach((node) => {
-    if (collapsedServices.has(node.service)) {
+    // Only cluster isolated nodes of collapsed services
+    if (collapsedServices.has(node.service) && !connectedIds.has(node.id)) {
       const clusterId = `cluster:${node.service}`;
       nodeToCluster.set(node.id, clusterId);
       if (!clusterData.has(node.service)) {
@@ -369,13 +378,13 @@ export function buildClusteredGraph(nodes, edges, collapsedServices) {
     id: `cluster:${service}`,
     service,
     type: "cluster",
-    label: `${data.count} ${service}`,
+    label: `${data.count} ${service} (unconnected)`,
     count: data.count,
     nodeIds: data.nodeIds,
   }));
 
   const outNodes = [
-    ...nodes.filter((n) => !collapsedServices.has(n.service)),
+    ...nodes.filter((n) => !nodeToCluster.has(n.id)),
     ...clusterNodes,
   ];
 
@@ -424,14 +433,138 @@ export function computeFocusSubgraph(nodes, edges, centerNodeId, depth) {
   };
 }
 
+// --- Collapse/expand VPC/subnet containers ---
+
+export function collapseContainerNodes(nodes, edges, collapsedContainers) {
+  if (!collapsedContainers || collapsedContainers.size === 0) return { nodes, edges };
+
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  // Build containment: container node id → Set of direct children
+  // Then resolve which annotation IDs map to which container node IDs
+  const containerChildren = new Map();
+
+  // Collect direct "contains" children for VPC infra nodes
+  edges.forEach((e) => {
+    if (e.relationship !== "contains") return;
+    const src = nodeMap.get(e.source);
+    if (!src || src.service !== "vpc") return;
+    if (!containerChildren.has(e.source)) containerChildren.set(e.source, new Set());
+    containerChildren.get(e.source).add(e.target);
+  });
+
+  // Map annotation IDs to container node IDs
+  const annotationToContainer = new Map();
+  containerChildren.forEach((_, containerId) => {
+    const node = nodeMap.get(containerId);
+    if (!node) return;
+    if (node.type === "vpc") annotationToContainer.set(`vpc-zone:${containerId}`, containerId);
+    else if (node.type === "subnet") annotationToContainer.set(`subnet-zone:${containerId}`, containerId);
+  });
+
+  // For AZ annotations, collect subnets in that AZ within a VPC
+  // AZ annotation IDs are "az-zone:{vpcNodeId}:{az}"
+  collapsedContainers.forEach((annId) => {
+    if (!annId.startsWith("az-zone:")) return;
+    const rest = annId.slice("az-zone:".length);
+    const lastColon = rest.lastIndexOf(":");
+    if (lastColon < 0) return;
+    const vpcNodeId = rest.slice(0, lastColon);
+    const az = rest.slice(lastColon + 1);
+    // Find all subnets in this VPC with this AZ
+    const vpcKids = containerChildren.get(vpcNodeId);
+    if (!vpcKids) return;
+    const azChildren = new Set();
+    vpcKids.forEach((childId) => {
+      const child = nodeMap.get(childId);
+      if (child && child.type === "subnet" && child.availability_zone === az) {
+        azChildren.add(childId);
+        // Also add the subnet's children
+        const subKids = containerChildren.get(childId);
+        if (subKids) subKids.forEach((id) => azChildren.add(id));
+      }
+    });
+    if (azChildren.size > 0) {
+      // Create a synthetic container key for AZ
+      annotationToContainer.set(annId, `__az__:${annId}`);
+      containerChildren.set(`__az__:${annId}`, azChildren);
+    }
+  });
+
+  // Collect all node IDs to remove (transitive children of collapsed containers)
+  const removedIds = new Set();
+  const syntheticNodes = [];
+  const idMapping = new Map(); // removed node ID → synthetic node ID
+
+  const collectTransitive = (containerId, into) => {
+    const kids = containerChildren.get(containerId);
+    if (!kids) return;
+    kids.forEach((childId) => {
+      into.add(childId);
+      collectTransitive(childId, into);
+    });
+  };
+
+  collapsedContainers.forEach((annId) => {
+    const containerId = annotationToContainer.get(annId);
+    if (!containerId) return;
+
+    const allChildren = new Set();
+    collectTransitive(containerId, allChildren);
+    if (allChildren.size === 0) return;
+
+    // Don't collapse the container node itself (e.g., the VPC node stays)
+    const containerNode = nodeMap.get(containerId);
+    allChildren.delete(containerId);
+
+    const syntheticId = `collapsed:${containerId}`;
+    allChildren.forEach((id) => {
+      removedIds.add(id);
+      idMapping.set(id, syntheticId);
+    });
+
+    syntheticNodes.push({
+      id: syntheticId,
+      service: "vpc",
+      type: "cluster",
+      label: `${containerNode?.label || containerId} (${allChildren.size})`,
+      count: allChildren.size,
+    });
+  });
+
+  if (removedIds.size === 0) return { nodes, edges };
+
+  const outNodes = [
+    ...nodes.filter((n) => !removedIds.has(n.id)),
+    ...syntheticNodes,
+  ];
+
+  const edgeSet = new Set();
+  const outEdges = [];
+  edges.forEach((edge) => {
+    const src = idMapping.get(edge.source) || edge.source;
+    const tgt = idMapping.get(edge.target) || edge.target;
+    if (src === tgt) return;
+    const key = `${src}→${tgt}`;
+    if (edgeSet.has(key)) return;
+    edgeSet.add(key);
+    outEdges.push({ ...edge, id: key, source: src, target: tgt });
+  });
+
+  return { nodes: outNodes, edges: outEdges };
+}
+
 // --- Role classification ---
 
 export function classifyNodeRole(node, allEdges) {
+  // Internet anchor nodes are entry points — place in trigger lane
+  if (node.type === "internet") return "trigger";
   const svc = String(node.service || "").toLowerCase();
   if (["apigateway", "eventbridge", "cloudfront", "route53", "appsync", "cognito", "elb"].includes(svc)) return "trigger";
   if (["lambda", "ec2", "ecs", "stepfunctions", "glue"].includes(svc)) return "processor";
   if (["dynamodb", "s3", "rds", "elasticache", "aurora", "redshift"].includes(svc)) return "storage";
   if (["sqs", "sns", "kinesis"].includes(svc)) return "queue";
+  if (svc === "vpc") return "network";
   if (["iam", "secretsmanager", "kms"].includes(svc)) return "unknown";
   // Fallback by connectivity
   const hasIn = allEdges.some((e) => e.target === node.id);
@@ -443,7 +576,7 @@ export function classifyNodeRole(node, allEdges) {
 
 // --- Swimlane layout ---
 
-const LANE_ORDER = ["trigger", "queue", "processor", "storage", "unknown"];
+const LANE_ORDER = ["trigger", "queue", "processor", "storage", "network", "unknown"];
 const LANE_Y_BASE = 160;
 const LANE_SPACING = 300;
 const NODE_X_SPACING = 260;
@@ -479,6 +612,7 @@ export function layoutSwimlane(nodes, edges) {
     queue: "EVENTS & QUEUES",
     processor: "PROCESSORS & FUNCTIONS",
     storage: "DATA STORES",
+    network: "NETWORK TOPOLOGY",
     unknown: "OTHER RESOURCES",
   };
   const LANE_TONES = {
@@ -486,6 +620,7 @@ export function layoutSwimlane(nodes, edges) {
     queue: "lane-queue",
     processor: "lane-processor",
     storage: "lane-storage",
+    network: "lane-network",
     unknown: "lane-unknown",
   };
 
@@ -525,6 +660,138 @@ export function layoutSwimlane(nodes, edges) {
 
 // --- Shortest path (BFS, directed) ---
 
+// --- Network topology container annotations ---
+
+export function computeNetworkAnnotations(positionedNodes, edges) {
+  const annotations = [];
+  const nodeMap = new Map(positionedNodes.map((n) => [n.id, n]));
+
+  // Build containment maps from edges: VPC → children, subnet → children
+  const vpcChildren = new Map();   // vpc node id → Set of child node ids
+  const subnetChildren = new Map(); // subnet node id → Set of child node ids
+
+  edges.forEach((e) => {
+    if (e.relationship !== "contains") return;
+    const src = nodeMap.get(e.source);
+    if (!src || src.service !== "vpc") return;
+    if (src.type === "vpc") {
+      if (!vpcChildren.has(e.source)) vpcChildren.set(e.source, new Set());
+      vpcChildren.get(e.source).add(e.target);
+      // Transitively add grandchildren (subnet's children belong to VPC too)
+    } else if (src.type === "subnet") {
+      if (!subnetChildren.has(e.source)) subnetChildren.set(e.source, new Set());
+      subnetChildren.get(e.source).add(e.target);
+    }
+  });
+
+  // Add subnet children to their parent VPC
+  // Also build AZ grouping: azKey → Set of subnet + child node IDs
+  const azGroups = new Map(); // "${vpcId}:${az}" → Set of node IDs (subnets + their children)
+
+  edges.forEach((e) => {
+    if (e.relationship !== "contains") return;
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (src && src.type === "vpc" && tgt && tgt.type === "subnet") {
+      const subChildren = subnetChildren.get(e.target);
+      if (subChildren && vpcChildren.has(e.source)) {
+        subChildren.forEach((id) => vpcChildren.get(e.source).add(id));
+      }
+      // AZ grouping
+      const az = tgt.availability_zone;
+      if (az) {
+        const azKey = `${e.source}:${az}`;
+        if (!azGroups.has(azKey)) azGroups.set(azKey, new Set());
+        azGroups.get(azKey).add(e.target);
+        if (subChildren) subChildren.forEach((id) => azGroups.get(azKey).add(id));
+      }
+    }
+  });
+
+  const computeBounds = (nodeIds, padding) => {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    let count = 0;
+    nodeIds.forEach((id) => {
+      const n = nodeMap.get(id);
+      if (!n || !n.position) return;
+      minX = Math.min(minX, n.position.x);
+      maxX = Math.max(maxX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxY = Math.max(maxY, n.position.y);
+      count++;
+    });
+    if (count === 0) return null;
+    return { minX: minX - padding, maxX: maxX + padding, minY: minY - padding, maxY: maxY + padding };
+  };
+
+  // Subnet annotations (innermost)
+  subnetChildren.forEach((children, subnetId) => {
+    const allIds = new Set(children);
+    allIds.add(subnetId);
+    const bounds = computeBounds(allIds, 80);
+    if (!bounds) return;
+    const subnetNode = nodeMap.get(subnetId);
+    const az = subnetNode?.availability_zone || "";
+    annotations.push({
+      id: `subnet-zone:${subnetId}`,
+      title: subnetNode?.label || subnetId,
+      subtitle: az ? `AZ: ${az}` : `${children.size} resource${children.size === 1 ? "" : "s"}`,
+      ...bounds,
+      tone: "subnet-container",
+      rx: 20,
+    });
+  });
+
+  // AZ annotations (middle tier)
+  azGroups.forEach((memberIds, azKey) => {
+    if (memberIds.size < 1) return;
+    const allIds = new Set(memberIds);
+    // Include the subnet nodes themselves in bounds
+    memberIds.forEach((id) => allIds.add(id));
+    const bounds = computeBounds(allIds, 100);
+    if (!bounds) return;
+    const az = azKey.split(":").pop();
+    const subnetCount = [...memberIds].filter((id) => nodeMap.get(id)?.type === "subnet").length;
+    annotations.push({
+      id: `az-zone:${azKey}`,
+      title: az,
+      subtitle: `${subnetCount} subnet${subnetCount === 1 ? "" : "s"}`,
+      ...bounds,
+      tone: "az-container",
+      rx: 16,
+    });
+  });
+
+  // VPC annotations (outermost)
+  vpcChildren.forEach((children, vpcId) => {
+    const allIds = new Set(children);
+    allIds.add(vpcId);
+    const bounds = computeBounds(allIds, 120);
+    if (!bounds) return;
+    const vpcNode = nodeMap.get(vpcId);
+    const subnetCount = [...children].filter((id) => nodeMap.get(id)?.type === "subnet").length;
+    const resourceCount = children.size - subnetCount;
+    const parts = [];
+    if (subnetCount) parts.push(`${subnetCount} subnet${subnetCount === 1 ? "" : "s"}`);
+    if (resourceCount) parts.push(`${resourceCount} resource${resourceCount === 1 ? "" : "s"}`);
+    annotations.push({
+      id: `vpc-zone:${vpcId}`,
+      title: `VPC: ${vpcNode?.label || vpcId}`,
+      subtitle: parts.join(", ") || "",
+      ...bounds,
+      tone: "vpc-container",
+      rx: 12,
+    });
+  });
+
+  // Z-order: VPC (back) → AZ → Subnet (front)
+  return [
+    ...annotations.filter((a) => a.tone === "vpc-container"),
+    ...annotations.filter((a) => a.tone === "az-container"),
+    ...annotations.filter((a) => a.tone === "subnet-container"),
+  ];
+}
+
 export function findShortestPath(nodes, edges, sourceId, targetId) {
   if (sourceId === targetId) return [sourceId];
   const nodeIds = new Set(nodes.map((n) => n.id));
@@ -538,10 +805,11 @@ export function findShortestPath(nodes, edges, sourceId, targetId) {
 
   const parent = new Map();
   const queue = [sourceId];
+  let head = 0;
   parent.set(sourceId, null);
 
-  while (queue.length) {
-    const current = queue.shift();
+  while (head < queue.length) {
+    const current = queue[head++];
     if (current === targetId) {
       const path = [];
       let node = targetId;
@@ -581,9 +849,10 @@ export function computeBlastRadius(nodes, edges, nodeId) {
   function bfs(startAdj) {
     const visited = new Set();
     const queue = [...(startAdj.get(nodeId) || [])];
+    let head = 0;
     queue.forEach((id) => visited.add(id));
-    while (queue.length) {
-      const cur = queue.shift();
+    while (head < queue.length) {
+      const cur = queue[head++];
       for (const next of startAdj.get(cur) || []) {
         if (!visited.has(next) && next !== nodeId) {
           visited.add(next);

@@ -3,12 +3,16 @@ import { GraphCanvas } from "../components/graph/GraphCanvas";
 import { InspectorPanel } from "../components/layout/InspectorPanel";
 import { ServiceSidebar } from "../components/layout/ServiceSidebar";
 import { TopBar } from "../components/layout/TopBar";
+import { useClickOutside } from "../hooks/useClickOutside";
 import { useScanPolling, formatJobStatusLabel } from "../hooks/useScanPolling";
+import { useTagDiscovery } from "../hooks/useTagDiscovery";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import {
   buildClusteredGraph,
+  collapseContainerNodes,
   computeBlastRadius,
   computeFocusSubgraph,
+  computeNetworkAnnotations,
   countServices,
   detectPatterns,
   filterGraphByRegion,
@@ -19,7 +23,7 @@ import {
   partitionByConnectivity,
 } from "../lib/graphTransforms";
 
-const DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb"];
+const DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb", "vpc"];
 
 function loadStoredServices() {
   try {
@@ -38,7 +42,8 @@ function loadStoredServices() {
 function WarningsPanel({ warnings }) {
   const [expanded, setExpanded] = useState(false);
   const permissionWarnings = warnings.filter((w) => w.startsWith("[permission]"));
-  const otherWarnings = warnings.filter((w) => !w.startsWith("[permission]"));
+  const errorWarnings = warnings.filter((w) => w.startsWith("[error]"));
+  const otherWarnings = warnings.filter((w) => !w.startsWith("[permission]") && !w.startsWith("[error]"));
 
   return (
     <div className="graph-stage-warnings">
@@ -46,6 +51,9 @@ function WarningsPanel({ warnings }) {
         <span>
           {permissionWarnings.length > 0 && (
             <span className="graph-warnings-perm-badge">{permissionWarnings.length} permission error{permissionWarnings.length === 1 ? "" : "s"}</span>
+          )}
+          {errorWarnings.length > 0 && (
+            <span className="graph-warnings-perm-badge">{errorWarnings.length} error{errorWarnings.length === 1 ? "" : "s"}</span>
           )}
           {otherWarnings.length > 0 && (
             <span className="graph-warnings-other-badge">{otherWarnings.length} warning{otherWarnings.length === 1 ? "" : "s"}</span>
@@ -60,12 +68,59 @@ function WarningsPanel({ warnings }) {
               {w.replace("[permission] ", "")}
             </li>
           ))}
+          {errorWarnings.map((w, i) => (
+            <li key={`e-${i}`} className="graph-warnings-item graph-warnings-item--error">
+              {w.replace("[error] ", "")}
+            </li>
+          ))}
           {otherWarnings.map((w, i) => (
             <li key={`o-${i}`} className="graph-warnings-item">
               {w}
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+const LAYOUT_OPTIONS = [
+  { value: "circular", label: "Circular", icon: "⬡" },
+  { value: "flow", label: "Flow", icon: "⇶" },
+  { value: "swimlane", label: "Swimlane", icon: "☰" },
+];
+
+function LayoutDropdown({ layoutMode, onLayoutModeChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = React.useRef(null);
+  const current = LAYOUT_OPTIONS.find((o) => o.value === layoutMode) || LAYOUT_OPTIONS[0];
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(wrapRef, close, open);
+
+  return (
+    <div className="layout-select-wrap" ref={wrapRef}>
+      <button
+        className={`layout-select-trigger ${open ? "open" : ""}`}
+        onClick={() => setOpen((v) => !v)}
+        title="Switch layout mode"
+      >
+        <span className="layout-select-trigger-icon">{current.icon}</span>
+        {current.label}
+        <span className="layout-select-caret">{open ? "▼" : "▶"}</span>
+      </button>
+      {open && (
+        <div className="layout-select-panel">
+          {LAYOUT_OPTIONS.map((opt) => (
+            <div
+              key={opt.value}
+              className={`layout-select-item ${layoutMode === opt.value ? "active" : ""}`}
+              onClick={() => { onLayoutModeChange(opt.value); setOpen(false); }}
+            >
+              <span className="layout-select-item-icon">{opt.icon}</span>
+              {opt.label}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -97,7 +152,7 @@ export default function CloudWirePage() {
   const [scanMode, setScanMode] = useState("quick");
   const [query, setQuery] = useState("");
   const [hiddenServices, setHiddenServices] = useState([]);
-  const [layoutMode, setLayoutMode] = useState("flow");
+  const [layoutMode, setLayoutMode] = useState("circular");
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
   // FIX #24: separate resource-fetch errors from scan errors so they don't overwrite each other
@@ -114,6 +169,12 @@ export default function CloudWirePage() {
   const [blastRadiusMode, setBlastRadiusMode] = useState(false);
   const [showFlowAnimation, setShowFlowAnimation] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
+  const [scanFilterMode, setScanFilterMode] = useState("services"); // "services" | "tags"
+  const [tagScanLoading, setTagScanLoading] = useState(false);
+  const [collapsedContainers, setCollapsedContainers] = useState(new Set());
+  const [hoveredExposedPath, setHoveredExposedPath] = useState(null);
+
+  const tagDiscovery = useTagDiscovery(region, scanFilterMode === "tags");
 
   // FIX #5/#10: deferred layout change with proper timer cleanup
   const changeLayout = useCallback((newMode) => {
@@ -156,6 +217,9 @@ export default function CloudWirePage() {
   );
 
   // Service counts from all visible nodes (before clustering/focus)
+  // Note: tag-based filtering is done server-side by filter_by_arns() — the
+  // backend graph already contains only matching resources, so no client-side
+  // ARN filter is needed here.
   const serviceCounts = useMemo(() => countServices(visibleNodes), [visibleNodes]);
 
   // Partition into connected vs isolated
@@ -184,18 +248,29 @@ export default function CloudWirePage() {
     [preClusterNodes, preClusterEdges, collapsedServices]
   );
 
+  // Apply container collapse (VPC/AZ/subnet)
+  const { nodes: containerNodes, edges: containerEdges } = useMemo(
+    () => collapseContainerNodes(clusteredNodes, clusteredEdges, collapsedContainers),
+    [clusteredNodes, clusteredEdges, collapsedContainers]
+  );
+
   // Apply focus mode
   const focusSubgraph = useMemo(() => {
-    if (!focusModeActive || !selectedNodeId) return { nodes: clusteredNodes, edges: clusteredEdges };
-    return computeFocusSubgraph(clusteredNodes, clusteredEdges, selectedNodeId, focusDepth);
-  }, [focusModeActive, selectedNodeId, clusteredNodes, clusteredEdges, focusDepth]);
+    if (!focusModeActive || !selectedNodeId) return { nodes: containerNodes, edges: containerEdges };
+    return computeFocusSubgraph(containerNodes, containerEdges, selectedNodeId, focusDepth);
+  }, [focusModeActive, selectedNodeId, containerNodes, containerEdges, focusDepth]);
 
   // Layout
   const laidOutGraph = useMemo(() => {
-    if (layoutMode === "swimlane") {
-      return layoutSwimlane(focusSubgraph.nodes, focusSubgraph.edges);
+    const result = layoutMode === "swimlane"
+      ? layoutSwimlane(focusSubgraph.nodes, focusSubgraph.edges)
+      : layoutHybridGraph(focusSubgraph.nodes, focusSubgraph.edges, layoutMode);
+    // Add VPC/subnet container annotations
+    const networkAnnotations = computeNetworkAnnotations(result.nodes, focusSubgraph.edges);
+    if (networkAnnotations.length > 0) {
+      result.annotations = [...networkAnnotations, ...(result.annotations || [])];
     }
-    return layoutHybridGraph(focusSubgraph.nodes, focusSubgraph.edges, layoutMode);
+    return result;
   }, [focusSubgraph, layoutMode]);
 
   const graphNodes = laidOutGraph.nodes;
@@ -307,22 +382,35 @@ export default function CloudWirePage() {
   }, [blastRadiusMode, selectedNodeId, graphNodes, graphEdges]);
 
   const pathNodeIds = useMemo(() => {
-    if (!foundPath.length) return null;
-    return new Set(foundPath);
-  }, [foundPath]);
+    // Path-finder path takes priority; fallback to hovered exposed path
+    if (foundPath.length) return new Set(foundPath);
+    if (hoveredExposedPath) return new Set(hoveredExposedPath);
+    return null;
+  }, [foundPath, hoveredExposedPath]);
+
+  const edgeLookup = useMemo(() => {
+    const map = new Map();
+    graphEdges.forEach((e) => {
+      const key = `${e.source}\u2192${e.target}`;
+      const arr = map.get(key);
+      if (arr) arr.push(e.id);
+      else map.set(key, [e.id]);
+    });
+    return map;
+  }, [graphEdges]);
 
   const pathEdgeIds = useMemo(() => {
-    if (foundPath.length < 2) return null;
+    const chain = foundPath.length ? foundPath : hoveredExposedPath;
+    if (!chain || chain.length < 2) return null;
     const ids = new Set();
-    for (let i = 0; i < foundPath.length - 1; i++) {
-      ids.add(`${foundPath[i]}→${foundPath[i + 1]}`);
-      // Also try edge IDs that might exist in the data
-      graphEdges.forEach((e) => {
-        if (e.source === foundPath[i] && e.target === foundPath[i + 1]) ids.add(e.id);
-      });
+    for (let i = 0; i < chain.length - 1; i++) {
+      const key = `${chain[i]}\u2192${chain[i + 1]}`;
+      ids.add(key);
+      const edgeIds = edgeLookup.get(key);
+      if (edgeIds) edgeIds.forEach((id) => ids.add(id));
     }
     return ids;
-  }, [foundPath, graphEdges]);
+  }, [foundPath, hoveredExposedPath, edgeLookup]);
 
   const architectureSummary = useMemo(
     () => generateArchitectureSummary(visibleNodes, visibleEdges),
@@ -338,6 +426,69 @@ export default function CloudWirePage() {
     () => `${region}|${graphNodes.length}|${graphEdges.length}|${graphNodes[0]?.id || ""}|${graphNodes[graphNodes.length - 1]?.id || ""}`,
     [region, graphNodes, graphEdges]
   );
+
+  const handleScanFilterModeChange = useCallback((mode) => {
+    setScanFilterMode(mode);
+  }, []);
+
+  const handleAnnotationClick = useCallback((annotationId) => {
+    setCollapsedContainers((prev) => {
+      const next = new Set(prev);
+      if (next.has(annotationId)) next.delete(annotationId);
+      else next.add(annotationId);
+      return next;
+    });
+  }, []);
+
+  // Exposed internet path highlighting on hover
+  const handleHoverNode = useCallback((nodeId) => {
+    if (!nodeId) { setHoveredExposedPath(null); return; }
+    const node = graphNodes.find((n) => n.id === nodeId);
+    if (node?.exposed_internet && Array.isArray(node.internet_path_nodes) && node.internet_path_nodes.length > 1) {
+      setHoveredExposedPath(node.internet_path_nodes);
+    } else {
+      setHoveredExposedPath(null);
+    }
+  }, [graphNodes]);
+
+  // Tag-based scan flow: discover resources, then trigger a normal scan
+  const handleScanByTags = useCallback(async () => {
+    hasAutoCollapsed.current = false;
+    setTagScanLoading(true);
+    setError("");
+
+    // Phase 1: discover resources matching tags
+    let result;
+    try {
+      result = await tagDiscovery.discoverResources();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setTagScanLoading(false);
+      return;
+    }
+    setTagScanLoading(false);
+
+    if (!result || result.arns.length === 0) {
+      setError("No resources found matching the selected tags.");
+      return;
+    }
+
+    // Phase 2: scan the discovered services (scanLoading from useScanPolling takes over)
+    // Don't overwrite selectedServices — those are the user's manual selection.
+    // The discovered services are only used for this scan invocation.
+    const discoveredServices = result.services;
+    try {
+      await runScan({
+        region,
+        services: discoveredServices,
+        mode: scanMode,
+        forceRefresh,
+        tagArns: result.arns,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [tagDiscovery, region, scanMode, forceRefresh, runScan, setError]);
 
   const handleNodeSelect = useCallback((nodeId) => {
     if (pathFinderMode) {
@@ -379,6 +530,11 @@ export default function CloudWirePage() {
         forceRefresh={forceRefresh}
         onForceRefreshChange={setForceRefresh}
         warnings={jobStatus?.warnings || []}
+        scanFilterMode={scanFilterMode}
+        onScanFilterModeChange={handleScanFilterModeChange}
+        tagDiscovery={tagDiscovery}
+        onScanByTags={handleScanByTags}
+        tagScanLoading={tagScanLoading}
       />
 
       <div className="cloudwire-layout">
@@ -404,8 +560,6 @@ export default function CloudWirePage() {
           onToggleIsolated={() => setShowIsolated((v) => !v)}
           isolatedCount={isolatedNodes.length}
           stats={stats}
-          layoutMode={layoutMode}
-          onLayoutModeChange={changeLayout}
           query={query}
           onQueryChange={setQuery}
           filteredNodes={filteredSearchNodes}
@@ -527,6 +681,7 @@ export default function CloudWirePage() {
           )}
 
           <div className="graph-toolbar">
+            <LayoutDropdown layoutMode={layoutMode} onLayoutModeChange={changeLayout} />
             <button
               className={`graph-toolbar-btn ${showSummary ? "active" : ""}`}
               onClick={() => setShowSummary((v) => !v)}
@@ -539,7 +694,7 @@ export default function CloudWirePage() {
               onClick={() => setShowFlowAnimation((v) => !v)}
               title="Animate data flow along edges"
             >
-              ▶ FLOW
+              ▶ ANIMATE
             </button>
             <button
               className="graph-toolbar-btn"
@@ -568,6 +723,9 @@ export default function CloudWirePage() {
             pathNodeIds={pathNodeIds}
             pathEdgeIds={pathEdgeIds}
             blastRadius={blastRadius}
+            onAnnotationClick={handleAnnotationClick}
+            collapsedContainers={collapsedContainers}
+            onHoverNode={handleHoverNode}
           />
 
           {error && <div className="graph-stage-error">{error}</div>}

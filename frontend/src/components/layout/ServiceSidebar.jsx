@@ -19,8 +19,6 @@ export function ServiceSidebar({
   onSelectNode,
   totalNodes,
   searchTruncated,
-  layoutMode,
-  onLayoutModeChange,
 }) {
   const totalResources = Object.values(serviceCounts).reduce((total, value) => total + value, 0);
 
@@ -88,25 +86,6 @@ export function ServiceSidebar({
               <span>{label}</span>
               <strong>{value}</strong>
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="sidebar-block">
-        <div className="sidebar-section-title">Layout</div>
-        <div className="sidebar-layout-list">
-          {[
-            { value: "circular", label: "Circular", icon: "⬡" },
-            { value: "flow", label: "Flow", icon: "⇶" },
-            { value: "swimlane", label: "Swimlane", icon: "☰" },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              className={`sidebar-control-link ${layoutMode === opt.value ? "active" : ""}`}
-              onClick={() => onLayoutModeChange(opt.value)}
-            >
-              <span className="sidebar-layout-icon">{opt.icon}</span> {opt.label}
-            </button>
           ))}
         </div>
       </section>

@@ -80,7 +80,7 @@ export function useScanPolling() {
   const [jobStatus, setJobStatus] = useState(null);
   const [currentJobId, setCurrentJobId] = useState(null);
   const [scanLoading, setScanLoading] = useState(false);
-  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
   const [error, setError] = useState("");
   const pollState = useRef({ token: 0, timer: null, startedAt: 0 });
 
@@ -188,7 +188,7 @@ export function useScanPolling() {
   );
 
   const runScan = useCallback(
-    async ({ region = DEFAULT_REGION, services = [], mode = "quick", forceRefresh = false }) => {
+    async ({ region = DEFAULT_REGION, services = [], mode = "quick", forceRefresh = false, tagArns = null }) => {
       clearPolling();
       const startToken = pollState.current.token;
       // FIX #1: immediately clear stale graph and status so the UI doesn't show
@@ -199,10 +199,12 @@ export function useScanPolling() {
       setScanLoading(true);
 
       try {
+        const scanBody = { region, services, mode, force_refresh: forceRefresh };
+        if (tagArns) scanBody.tag_arns = tagArns;
         const payload = await requestJson("/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ region, services, mode, force_refresh: forceRefresh }),
+          body: JSON.stringify(scanBody),
         }, "Unable to start the AWS scan");
 
         const jobId = payload.job_id;

@@ -121,7 +121,8 @@ For a tighter policy, here are the core permissions used per service:
 | SNS | `sns:ListTopics`, `sns:ListSubscriptions` |
 | EventBridge | `events:ListRules`, `events:ListTargetsByRule` |
 | DynamoDB | `dynamodb:ListTables`, `dynamodb:DescribeTable` |
-| EC2 | `ec2:DescribeInstances`, `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups` |
+| EC2 | `ec2:DescribeInstances` |
+| VPC Network | `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`, `ec2:DescribeInternetGateways`, `ec2:DescribeNatGateways`, `ec2:DescribeRouteTables` |
 | ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices`, `ecs:DescribeTaskDefinition` |
 | S3 | `s3:ListAllMyBuckets`, `s3:GetBucketNotification` |
 | RDS | `rds:DescribeDBInstances`, `rds:DescribeDBClusters` |
@@ -159,7 +160,7 @@ For a tighter policy, here are the core permissions used per service:
 - **Select node** — click a node to open the inspector panel on the right
 - **Fit to screen** — double-click on empty canvas space
 - **Blast radius** — when a node is selected, connected upstream/downstream nodes are highlighted
-- **Flow animation** — enabled by default, shows animated particles along edges indicating data flow direction. Toggle with the FLOW button in the toolbar
+- **Flow animation** — enabled by default, shows animated particles along edges indicating data flow direction. Toggle with the ANIMATE button in the toolbar
 - **START/END badges** — entry points (no incoming edges) show a START badge, terminal nodes (no outgoing edges) show an END badge
 
 ### Inspector panel
@@ -175,14 +176,34 @@ The search bar in the left sidebar filters nodes by ID or label. Results are cap
 
 ### Layout
 
-Switch between three graph layout modes from the layout dropdown in the top bar:
-- **Flow** (default) — sequential left-to-right layout with START/END badges showing data flow direction
-- **Circular** — nodes arranged in service clusters
+Switch between layout modes from the layout dropdown in the graph toolbar:
+- **Circular** (default) — nodes arranged in service clusters
+- **Flow** — sequential left-to-right layout with START/END badges showing data flow direction
 - **Swimlane** — grouped by role (triggers, processors, storage, queues) in horizontal lanes
 
 ### Isolated nodes
 
 By default, nodes with no edges are hidden (they have no relationships to other scanned services). Toggle **Show isolated** in the top bar to reveal them. If all nodes are isolated (e.g. you scanned only SQS), they are shown automatically.
+
+### Tag-based scanning
+
+Switch the mode toggle from **Services** to **Tags** to scan by AWS resource tags:
+
+1. Select tag keys from the searchable, multi-select key dropdown
+2. Select values from the merged, searchable value dropdown
+3. Click **ADD FILTER** — a filter chip appears
+4. Add more filters if needed (they combine as AND)
+5. Click **Scan by tags** to discover and scan matching resources
+
+Your manual service selections are preserved — they are not overwritten by tag scan results.
+
+### VPC network topology
+
+Include **VPC Network** in your service selection to see CloudMapper-style network diagrams. VPC scanning runs after all other services (Phase 2) and is automatically scoped to only the VPCs your resources reference.
+
+- Click container annotations (VPC/AZ/Subnet backgrounds) to collapse or expand them
+- Hover over internet-exposed resources to see the full exposure path highlighted
+- Security group edges show port range labels (e.g. `443/tcp`)
 
 ---
 

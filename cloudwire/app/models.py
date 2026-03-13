@@ -18,7 +18,7 @@ def normalize_service_name(service: str) -> str:
     return SERVICE_ALIASES.get(key, key)
 
 
-DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb"]
+DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb", "vpc"]
 ScanMode = Literal["quick", "deep"]
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 
@@ -30,6 +30,7 @@ class ScanRequest(BaseModel):
     force_refresh: bool = False
     include_iam_inference: Optional[bool] = None
     include_resource_describes: Optional[bool] = None
+    tag_arns: Optional[List[str]] = Field(default=None, max_length=10000)
 
     @field_validator("region")
     @classmethod
@@ -86,6 +87,20 @@ class ScanJobStatusResponse(BaseModel):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     error: Optional[str] = None
+
+
+class TagKeysResponse(BaseModel):
+    keys: List[str]
+
+
+class TagValuesResponse(BaseModel):
+    key: str
+    values: List[str]
+
+
+class TagResourcesResponse(BaseModel):
+    arns: List[str]
+    services: List[str]
 
 
 class APIErrorDetail(BaseModel):

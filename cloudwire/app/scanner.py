@@ -63,6 +63,33 @@ class ScanCancelledError(Exception):
     pass
 
 
+# Service name -> resource type filter(s) for the tagging API.
+# Used by _fetch_and_apply_tags to batch-fetch tags for scanned resources.
+_SERVICE_TO_RESOURCE_TYPE_FILTER: Dict[str, List[str]] = {
+    "apigateway": ["apigateway"],
+    "lambda": ["lambda:function"],
+    "sqs": ["sqs"],
+    "eventbridge": ["events"],
+    "dynamodb": ["dynamodb:table"],
+    "ec2": ["ec2:instance"],
+    "ecs": ["ecs:cluster", "ecs:service", "ecs:task-definition"],
+    "s3": ["s3"],
+    "rds": ["rds:db", "rds:cluster"],
+    "stepfunctions": ["states:stateMachine"],
+    "sns": ["sns"],
+    "kinesis": ["kinesis:stream"],
+    "cognito": ["cognito-idp:userpool"],
+    "cloudfront": ["cloudfront:distribution"],
+    "elasticache": ["elasticache:cluster"],
+    "glue": ["glue:job", "glue:crawler"],
+    "appsync": ["appsync"],
+    "route53": ["route53:hostedzone"],
+    "redshift": ["redshift:cluster"],
+    "iam": [],  # IAM tags are global, handled differently
+    "vpc": ["ec2:vpc", "ec2:subnet", "ec2:security-group", "ec2:internet-gateway", "ec2:natgateway", "ec2:route-table"],
+}
+
+
 class AWSGraphScanner:
     # IAM action prefix -> normalized service name for policy dependency inference
     _IAM_PREFIX_TO_SERVICE: Dict[str, str] = {
@@ -113,9 +140,11 @@ class AWSGraphScanner:
             "appsync":       self._scan_appsync,
             "route53":       self._scan_route53,
             "redshift":      self._scan_redshift,
+            "vpc":           self._scan_vpc,
         }
         self._iam_role_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._iam_cache_lock = Lock()
+        self._node_attr_index: Dict[tuple, str] = {}  # (service, attr, value) -> node_id
         self._metrics_lock = Lock()
         self._api_call_counts: Dict[str, int] = {}
         self._service_durations_ms: Dict[str, int] = {}
@@ -151,14 +180,19 @@ class AWSGraphScanner:
             self.store.add_warning("Resource describe enrichment skipped for faster quick scan mode.")
 
         session = boto3.session.Session(region_name=region)
+        has_vpc = "vpc" in normalized_services
         total_services = len(normalized_services)
         completed = 0
         started_at = perf_counter()
 
-        workers = max(1, min(self.options.max_service_workers, total_services or 1))
+        # Phase 1: run all non-VPC scanners in parallel
+        phase1_count = max(1, len(normalized_services) - (1 if has_vpc else 0))
+        workers = max(1, min(self.options.max_service_workers, phase1_count))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             future_to_service: Dict[Any, str] = {}
             for service in normalized_services:
+                if service == "vpc":
+                    continue  # handled in Phase 2
                 if self._is_cancelled():
                     break
                 if progress_callback:
@@ -172,15 +206,50 @@ class AWSGraphScanner:
                     with self._metrics_lock:
                         self._service_durations_ms[service] = duration_ms
                 except ScanCancelledError:
-                    return
+                    pass
                 except Exception as exc:
                     logger.exception("Unhandled error draining future for service %s", service)
                     self.store.add_warning(f"{service} scan failed: {type(exc).__name__} - {exc}")
-                completed += 1
-                if progress_callback:
-                    progress_callback("finish", service, completed, total_services)
+                finally:
+                    completed += 1
+                    if progress_callback:
+                        progress_callback("finish", service, completed, total_services)
 
             self._drain_futures(future_to_service, on_service_result)
+
+        # Phase 2: scoped VPC scan — only fetch VPCs referenced by Phase 1 scanners
+        if has_vpc and not self._is_cancelled():
+            if progress_callback:
+                progress_callback("start", "vpc", completed, total_services)
+            vpc_ids = self._collect_referenced_vpc_ids()
+            logger.info("Phase 2 VPC scan: %d referenced VPC(s)%s",
+                        len(vpc_ids),
+                        f" {list(vpc_ids)}" if 0 < len(vpc_ids) <= 10 else "")
+            vpc_start = perf_counter()
+            try:
+                self._scan_vpc(session, vpc_ids=vpc_ids if vpc_ids else None)
+                self._fetch_and_apply_tags(session, "vpc")
+            except ScanCancelledError:
+                pass
+            except ClientError as exc:
+                error_code = exc.response.get("Error", {}).get("Code", "")
+                if error_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess"):
+                    logger.warning("Permission denied scanning vpc: %s", error_code)
+                    self.store.add_warning("[permission] vpc: access denied — check IAM permissions for this service")
+                else:
+                    logger.warning("AWS API error scanning vpc: %s", exc)
+                    self.store.add_warning(f"vpc scan failed: {type(exc).__name__} - {exc}")
+            except (BotoCoreError, Exception) as exc:
+                logger.exception("Error in VPC phase-2 scan")
+                self.store.add_warning(f"vpc scan failed: {type(exc).__name__} - {exc}")
+            with self._metrics_lock:
+                self._service_durations_ms["vpc"] = int((perf_counter() - vpc_start) * 1000)
+            completed += 1
+            if progress_callback:
+                progress_callback("finish", "vpc", completed, total_services)
+
+        # Post-scan: compute internet exposure if VPC topology was scanned
+        self._compute_network_exposure()
 
         duration_ms = int((perf_counter() - started_at) * 1000)
         self.store.update_metadata(
@@ -202,6 +271,8 @@ class AWSGraphScanner:
         try:
             if scanner:
                 scanner(session)
+                # Batch-fetch tags for dedicated scanners (generic already fetches tags)
+                self._fetch_and_apply_tags(session, service)
             else:
                 self._scan_generic_service(session, service)
         except ScanCancelledError:
@@ -242,6 +313,39 @@ class AWSGraphScanner:
 
     def _node(self, node_id: str, **attrs: Any) -> None:
         self.store.add_node(node_id, region=self._region, **attrs)
+        service = attrs.get("service")
+        if service:
+            for attr_name in ("domain", "label"):
+                val = attrs.get(attr_name)
+                if val:
+                    self._node_attr_index[(service, attr_name, val)] = node_id
+
+    @staticmethod
+    def _parse_sg_rules(permissions: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+        """Parse AWS SG IpPermissions into a flat list of rule dicts."""
+        rules: List[Dict[str, str]] = []
+        for perm in permissions:
+            protocol = perm.get("IpProtocol", "-1")
+            from_port = perm.get("FromPort", 0)
+            to_port = perm.get("ToPort", 0)
+            if protocol == "-1":
+                port_range = "all"
+            elif from_port == to_port:
+                port_range = f"{from_port}/{protocol}"
+            else:
+                port_range = f"{from_port}-{to_port}/{protocol}"
+            # CIDR-based rules
+            for ip_range in perm.get("IpRanges", []):
+                rules.append({"protocol": protocol, "port_range": port_range,
+                              "source": ip_range.get("CidrIp", ""), "source_type": "cidr"})
+            for ip_range in perm.get("Ipv6Ranges", []):
+                rules.append({"protocol": protocol, "port_range": port_range,
+                              "source": ip_range.get("CidrIpv6", ""), "source_type": "cidr"})
+            # SG-to-SG rules
+            for pair in perm.get("UserIdGroupPairs", []):
+                rules.append({"protocol": protocol, "port_range": port_range,
+                              "source": pair.get("GroupId", ""), "source_type": "sg"})
+        return rules
 
     def _drain_futures(
         self,
@@ -272,11 +376,7 @@ class AWSGraphScanner:
 
     def _find_node_by_attr(self, service: str, attr: str, value: str) -> Optional[str]:
         """Find an existing node of a given service where attr == value. Returns node_id or None."""
-        with self.store._lock:
-            for node_id, attrs in self.store.graph.nodes(data=True):
-                if attrs.get("service") == service and attrs.get(attr) == value:
-                    return node_id
-        return None
+        return self._node_attr_index.get((service, attr, value))
 
     def _add_arn_node(self, arn: str, *, label: Optional[str] = None, node_type: str = "resource") -> str:
         self._ensure_not_cancelled()
@@ -290,6 +390,161 @@ class AWSGraphScanner:
             type=node_type,
         )
         return node_id
+
+    def _fetch_and_apply_tags(self, session: boto3.session.Session, service_name: str) -> None:
+        """Batch-fetch tags for all resources of a service and apply them to graph nodes.
+
+        Builds multiple lookup indices to match tagging API ARNs to graph nodes,
+        since some scanners store non-ARN values (table names, queue URLs) as the
+        node's 'arn' attribute.
+        """
+        resource_types = _SERVICE_TO_RESOURCE_TYPE_FILTER.get(service_name, [])
+        if not resource_types:
+            return
+        try:
+            client = self._client(session, "resourcegroupstaggingapi")
+
+            # Build multiple lookup indices for matching
+            arn_to_node: Dict[str, str] = {}      # exact 'arn' attr match
+            name_to_node: Dict[str, str] = {}     # resource name match (last segment of ARN)
+            node_id_to_node: Dict[str, str] = {}  # node_id contains the ARN
+
+            with self.store._lock:
+                for node_id, attrs in self.store.graph.nodes(data=True):
+                    if attrs.get("service") != service_name:
+                        continue
+                    node_arn = attrs.get("arn")
+                    if node_arn:
+                        arn_to_node[node_arn] = node_id
+                    label = attrs.get("label", "")
+                    if label:
+                        name_to_node[label] = node_id
+                    node_id_to_node[node_id] = node_id
+
+            if not arn_to_node and not name_to_node:
+                return
+
+            paginator = client.get_paginator("get_resources")
+            for rt in resource_types:
+                if self._is_cancelled():
+                    return
+                try:
+                    for page in paginator.paginate(ResourcesPerPage=100, ResourceTypeFilters=[rt]):
+                        self._increment_api_call("resourcegroupstaggingapi", "get_resources")
+                        for entry in page.get("ResourceTagMappingList", []):
+                            arn = entry.get("ResourceARN")
+                            if not arn:
+                                continue
+                            # Try matching: exact arn, then node_id containing arn,
+                            # then by resource name (last ARN segment)
+                            matched_node = arn_to_node.get(arn)
+                            if not matched_node:
+                                # Node ID format is 'service:arn', check if it exists
+                                candidate_id = f"{service_name}:{arn}"
+                                matched_node = node_id_to_node.get(candidate_id)
+                            if not matched_node:
+                                # Match by resource name (last part of ARN after / or :)
+                                resource_name = arn.rsplit("/", 1)[-1] if "/" in arn else arn.rsplit(":", 1)[-1]
+                                matched_node = name_to_node.get(resource_name)
+                            if matched_node:
+                                tags = {item.get("Key"): item.get("Value") for item in entry.get("Tags", [])}
+                                self._node(matched_node, tags=tags, real_arn=arn)
+                except (ClientError, BotoCoreError) as exc:
+                    logger.debug("Tag fetch failed for resource type %s: %s", rt, exc)
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("Tag fetch failed for service %s: %s", service_name, exc)
+
+    def _collect_referenced_vpc_ids(self) -> Set[str]:
+        """Collect VPC IDs that were referenced by non-VPC scanners as stub nodes."""
+        vpc_ids: Set[str] = set()
+        with self.store._lock:
+            for node_id, attrs in self.store.graph.nodes(data=True):
+                if attrs.get("service") == "vpc" and attrs.get("type") == "vpc":
+                    # node_id format: "vpc:vpc/{vpc_id}"
+                    parts = node_id.split("vpc/", 1)
+                    if len(parts) == 2:
+                        vpc_ids.add(parts[1])
+        return vpc_ids
+
+    def _compute_network_exposure(self) -> None:
+        """Compute exposed_internet flag by tracing IGW → route table → subnet → SG → resource paths.
+
+        Runs after all scanners complete — no concurrent graph mutations expected.
+        Snapshots the graph under the lock, traverses the snapshot, then applies results.
+        """
+        # Snapshot graph data under the lock to avoid holding it during traversal
+        with self.store._lock:
+            graph = self.store.graph.copy()
+
+        # Find all IGW nodes
+        igw_nodes = [n for n, d in graph.nodes(data=True) if d.get("type") == "internet_gateway"]
+        if not igw_nodes:
+            return
+
+        # Build subnet → resources that are "contained" in that subnet
+        subnet_resources: Dict[str, List[str]] = {}
+        # Build resource → protecting SGs
+        resource_sgs: Dict[str, List[str]] = {}
+
+        for src, tgt, attrs in graph.edges(data=True):
+            rel = attrs.get("relationship", "")
+            if rel == "contains":
+                src_type = graph.nodes[src].get("type", "")
+                if src_type == "subnet":
+                    subnet_resources.setdefault(src, []).append(tgt)
+            elif rel == "protects":
+                resource_sgs.setdefault(tgt, []).append(src)
+
+        # Build IGW → Internet node mapping (for path node IDs)
+        igw_to_internet: Dict[str, str] = {}
+        for src, tgt, attrs in graph.edges(data=True):
+            if attrs.get("relationship") == "gateway":
+                igw_to_internet[tgt] = src  # internet_node → igw_node, so tgt=igw, src=internet
+
+        # For each IGW, find route tables it feeds into, then subnets those RTBs route to
+        # Store both path string and node IDs for frontend highlighting
+        internet_reachable_subnets: Dict[str, tuple] = {}  # subnet_node -> (path_string, [node_ids])
+
+        for igw_node in igw_nodes:
+            igw_label = graph.nodes[igw_node].get("label", igw_node)
+            internet_node = igw_to_internet.get(igw_node)
+            # IGW → routes_via → RTB (direct edge from _scan_vpc)
+            for _, rtb_node, e_attrs in graph.out_edges(igw_node, data=True):
+                if e_attrs.get("relationship") != "routes_via":
+                    continue
+                rtb_label = graph.nodes[rtb_node].get("label", rtb_node)
+                # RTB → routes → subnet
+                for _, subnet_node, r_attrs in graph.out_edges(rtb_node, data=True):
+                    if r_attrs.get("relationship") == "routes":
+                        path_str = f"{igw_label} → {rtb_label}"
+                        path_nodes = [n for n in [internet_node, igw_node, rtb_node, subnet_node] if n]
+                        internet_reachable_subnets[subnet_node] = (path_str, path_nodes)
+
+        # Mark resources in internet-reachable subnets with open SGs
+        exposure_updates: List[tuple] = []
+        for subnet_node, (path_prefix, path_nodes_prefix) in internet_reachable_subnets.items():
+            subnet_label = graph.nodes[subnet_node].get("label", subnet_node)
+            for resource_node in subnet_resources.get(subnet_node, []):
+                # Skip VPC infra nodes themselves
+                if graph.nodes[resource_node].get("service") == "vpc":
+                    continue
+                # Check if any protecting SG allows all ingress
+                for sg_node in resource_sgs.get(resource_node, []):
+                    if graph.nodes[sg_node].get("has_open_ingress"):
+                        open_sg = graph.nodes[sg_node].get("label", sg_node)
+                        path = f"{path_prefix} → {subnet_label} → {open_sg}"
+                        path_node_ids = path_nodes_prefix + [sg_node, resource_node]
+                        exposure_updates.append((resource_node, path, path_node_ids))
+                        break
+
+        # Apply results under the lock
+        if exposure_updates:
+            with self.store._lock:
+                for resource_node, path, path_node_ids in exposure_updates:
+                    if self.store.graph.has_node(resource_node):
+                        self.store.graph.nodes[resource_node]["exposed_internet"] = True
+                        self.store.graph.nodes[resource_node]["internet_path"] = path
+                        self.store.graph.nodes[resource_node]["internet_path_nodes"] = path_node_ids
 
     def _parse_lambda_arn(self, value: Optional[str]) -> Optional[str]:
         if not value:
@@ -601,6 +856,21 @@ class AWSGraphScanner:
                     role_node = self._add_arn_node(role_arn, label=role_name, node_type="role")
                     self._node(role_node, service="iam")
                     self.store.add_edge(role_node, node_id, relationship="assumed_by", via="lambda_execution_role")
+
+            # Lambda VPC topology edges
+            vpc_config = fn.get("VpcConfig", {})
+            fn_vpc_id = vpc_config.get("VpcId")
+            if fn_vpc_id:
+                fn_vpc_node = self._make_node_id("vpc", f"vpc/{fn_vpc_id}")
+                self._node(fn_vpc_node, label=fn_vpc_id, service="vpc", type="vpc")
+                for fn_subnet_id in vpc_config.get("SubnetIds", []):
+                    fn_subnet_node = self._make_node_id("vpc", f"subnet/{fn_subnet_id}")
+                    self._node(fn_subnet_node, label=fn_subnet_id, service="vpc", type="subnet")
+                    self.store.add_edge(fn_subnet_node, node_id, relationship="contains", via="lambda_vpc_placement")
+                for fn_sg_id in vpc_config.get("SecurityGroupIds", []):
+                    fn_sg_node = self._make_node_id("vpc", f"sg/{fn_sg_id}")
+                    self._node(fn_sg_node, label=fn_sg_id, service="vpc", type="security_group")
+                    self.store.add_edge(fn_sg_node, node_id, relationship="protects", via="lambda_security_group")
 
             # Phase 1, Item 1: Lambda env var edges
             self._extract_lambda_env_edges(fn, node_id)
@@ -1111,15 +1381,15 @@ class AWSGraphScanner:
                     # Phase 2, Item 5: EC2 → VPC / Subnet / Security Group edges
                     vpc_id = instance.get("VpcId")
                     if vpc_id:
-                        vpc_node = self._make_node_id("ec2", f"vpc/{vpc_id}")
-                        self._node(vpc_node, label=vpc_id, service="ec2", type="vpc",
+                        vpc_node = self._make_node_id("vpc", f"vpc/{vpc_id}")
+                        self._node(vpc_node, label=vpc_id, service="vpc", type="vpc",
                                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:vpc/{vpc_id}")
                         self.store.add_edge(vpc_node, node_id, relationship="contains", via="ec2_vpc_membership")
 
                     subnet_id = instance.get("SubnetId")
                     if subnet_id:
-                        subnet_node = self._make_node_id("ec2", f"subnet/{subnet_id}")
-                        self._node(subnet_node, label=subnet_id, service="ec2", type="subnet",
+                        subnet_node = self._make_node_id("vpc", f"subnet/{subnet_id}")
+                        self._node(subnet_node, label=subnet_id, service="vpc", type="subnet",
                                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:subnet/{subnet_id}")
                         self.store.add_edge(subnet_node, node_id, relationship="contains", via="ec2_subnet_membership")
                         if vpc_id:
@@ -1128,8 +1398,8 @@ class AWSGraphScanner:
                     for sg in instance.get("SecurityGroups", []):
                         sg_id = sg.get("GroupId", "")
                         if sg_id:
-                            sg_node = self._make_node_id("ec2", f"sg/{sg_id}")
-                            self._node(sg_node, label=sg.get("GroupName", sg_id), service="ec2",
+                            sg_node = self._make_node_id("vpc", f"sg/{sg_id}")
+                            self._node(sg_node, label=sg.get("GroupName", sg_id), service="vpc",
                                        type="security_group",
                                        arn=f"arn:aws:ec2:{self._region}:{owner_id}:security-group/{sg_id}")
                             self.store.add_edge(sg_node, node_id, relationship="protects", via="ec2_security_group")
@@ -1143,6 +1413,246 @@ class AWSGraphScanner:
                         self._node(profile_node, service="iam")
                         self.store.add_edge(profile_node, node_id, relationship="assumed_by",
                                             via="ec2_instance_profile")
+
+    # ── VPC Network Topology ────────────────────────────────────────────────
+
+    def _scan_vpc(self, session: boto3.session.Session, *, vpc_ids: Optional[Set[str]] = None) -> None:
+        client = self._client(session, "ec2")
+        vpc_id_list = list(vpc_ids) if vpc_ids else None
+
+        # 1. VPCs
+        vpc_kwargs = {"VpcIds": vpc_id_list} if vpc_id_list else {}
+        for page in client.get_paginator("describe_vpcs").paginate(**vpc_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_vpcs")
+            for vpc in page.get("Vpcs", []):
+                self._ensure_not_cancelled()
+                vpc_id = vpc["VpcId"]
+                owner_id = vpc.get("OwnerId", "")
+                name_tag = next((t["Value"] for t in vpc.get("Tags", []) if t.get("Key") == "Name"), None)
+                node_id = self._make_node_id("vpc", f"vpc/{vpc_id}")
+                self._node(
+                    node_id,
+                    label=name_tag or vpc_id,
+                    service="vpc",
+                    type="vpc",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:vpc/{vpc_id}",
+                    cidr_block=vpc.get("CidrBlock"),
+                    is_default=vpc.get("IsDefault", False),
+                    state=vpc.get("State"),
+                )
+
+        # 2. Subnets
+        subnet_kwargs = {"Filters": [{"Name": "vpc-id", "Values": vpc_id_list}]} if vpc_id_list else {}
+        for page in client.get_paginator("describe_subnets").paginate(**subnet_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_subnets")
+            for subnet in page.get("Subnets", []):
+                self._ensure_not_cancelled()
+                subnet_id = subnet["SubnetId"]
+                vpc_id = subnet.get("VpcId")
+                owner_id = subnet.get("OwnerId", "")
+                name_tag = next((t["Value"] for t in subnet.get("Tags", []) if t.get("Key") == "Name"), None)
+                node_id = self._make_node_id("vpc", f"subnet/{subnet_id}")
+                self._node(
+                    node_id,
+                    label=name_tag or subnet_id,
+                    service="vpc",
+                    type="subnet",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:subnet/{subnet_id}",
+                    cidr_block=subnet.get("CidrBlock"),
+                    availability_zone=subnet.get("AvailabilityZone"),
+                    map_public_ip_on_launch=subnet.get("MapPublicIpOnLaunch", False),
+                    available_ip_count=subnet.get("AvailableIpAddressCount"),
+                )
+                if vpc_id:
+                    vpc_node = self._make_node_id("vpc", f"vpc/{vpc_id}")
+                    self.store.add_edge(vpc_node, node_id, relationship="contains", via="vpc_subnet")
+
+        # 3. Security Groups
+        # Accumulate SG rule edges to handle DiGraph single-edge constraint
+        pending_sg_edges: Dict[tuple, List[str]] = {}  # (src, tgt) -> list of port labels
+        sg_vpc_map: Dict[str, str] = {}  # sg_node_id -> vpc_id
+
+        sg_kwargs = {"Filters": [{"Name": "vpc-id", "Values": vpc_id_list}]} if vpc_id_list else {}
+        for page in client.get_paginator("describe_security_groups").paginate(**sg_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_security_groups")
+            for sg in page.get("SecurityGroups", []):
+                self._ensure_not_cancelled()
+                sg_id = sg["GroupId"]
+                vpc_id = sg.get("VpcId")
+                owner_id = sg.get("OwnerId", "")
+                inbound_rules = sg.get("IpPermissions", [])
+                outbound_rules = sg.get("IpPermissionsEgress", [])
+                has_open_ingress = any(
+                    any(r.get("CidrIp") == "0.0.0.0/0" for r in perm.get("IpRanges", [])) or
+                    any(r.get("CidrIpv6") == "::/0" for r in perm.get("Ipv6Ranges", []))
+                    for perm in inbound_rules
+                )
+                node_id = self._make_node_id("vpc", f"sg/{sg_id}")
+
+                # Parse rules for tooltip display and edge creation
+                parsed_in = self._parse_sg_rules(inbound_rules)
+                parsed_out = self._parse_sg_rules(outbound_rules)
+
+                self._node(
+                    node_id,
+                    label=sg.get("GroupName", sg_id),
+                    service="vpc",
+                    type="security_group",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:security-group/{sg_id}",
+                    group_name=sg.get("GroupName"),
+                    description=sg.get("Description"),
+                    inbound_rule_count=len(inbound_rules),
+                    outbound_rule_count=len(outbound_rules),
+                    has_open_ingress=has_open_ingress,
+                    inbound_rules_parsed=parsed_in,
+                    outbound_rules_parsed=parsed_out,
+                )
+                if vpc_id:
+                    vpc_node = self._make_node_id("vpc", f"vpc/{vpc_id}")
+                    self.store.add_edge(vpc_node, node_id, relationship="contains", via="vpc_security_group")
+                    sg_vpc_map[node_id] = vpc_id
+
+                # Accumulate SG rule edges from inbound rules
+                for rule in parsed_in:
+                    port_label = rule["port_range"]
+                    if rule["source_type"] == "cidr" and rule["source"] in ("0.0.0.0/0", "::/0"):
+                        # Will connect from Internet node later (after IGW scan)
+                        if vpc_id:
+                            internet_key = ("__internet__", vpc_id, node_id)
+                            pending_sg_edges.setdefault(internet_key, []).append(port_label)
+                    elif rule["source_type"] == "sg":
+                        ref_sg_node = self._make_node_id("vpc", f"sg/{rule['source']}")
+                        pending_sg_edges.setdefault((ref_sg_node, node_id), []).append(port_label)
+
+        # 4. Internet Gateways
+        vpc_to_igws: Dict[str, List[str]] = {}  # vpc_id -> list of igw node IDs
+
+        igw_kwargs = {"Filters": [{"Name": "attachment.vpc-id", "Values": vpc_id_list}]} if vpc_id_list else {}
+        for page in client.get_paginator("describe_internet_gateways").paginate(**igw_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_internet_gateways")
+            for igw in page.get("InternetGateways", []):
+                self._ensure_not_cancelled()
+                igw_id = igw["InternetGatewayId"]
+                owner_id = igw.get("OwnerId", "")
+                name_tag = next((t["Value"] for t in igw.get("Tags", []) if t.get("Key") == "Name"), None)
+                node_id = self._make_node_id("vpc", f"igw/{igw_id}")
+                self._node(
+                    node_id,
+                    label=name_tag or igw_id,
+                    service="vpc",
+                    type="internet_gateway",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:internet-gateway/{igw_id}",
+                )
+                for attachment in igw.get("Attachments", []):
+                    att_vpc_id = attachment.get("VpcId")
+                    if att_vpc_id:
+                        vpc_node = self._make_node_id("vpc", f"vpc/{att_vpc_id}")
+                        self.store.add_edge(node_id, vpc_node, relationship="attached_to", via="igw_attachment")
+                        vpc_to_igws.setdefault(att_vpc_id, []).append(node_id)
+
+        # 4b. Internet Anchor Nodes — one per VPC with an IGW
+        for vpc_id, igw_node_ids in vpc_to_igws.items():
+            internet_node = self._make_node_id("vpc", f"internet/{vpc_id}")
+            self._node(
+                internet_node,
+                label="Internet",
+                service="vpc",
+                type="internet",
+            )
+            for igw_node_id in igw_node_ids:
+                self.store.add_edge(internet_node, igw_node_id, relationship="gateway", via="internet_igw")
+
+        # 4c. Emit accumulated SG rule edges
+        for key, port_labels in pending_sg_edges.items():
+            if isinstance(key[0], str) and key[0] == "__internet__":
+                # Internet -> SG edge: resolve to the Internet anchor node for this VPC
+                _, vpc_id, sg_node = key
+                internet_node = self._make_node_id("vpc", f"internet/{vpc_id}")
+                self.store.add_edge(
+                    internet_node, sg_node,
+                    relationship="allows", via="sg_rule",
+                    port_range=", ".join(sorted(set(port_labels))),
+                )
+            else:
+                src_node, tgt_node = key
+                self.store.add_edge(
+                    src_node, tgt_node,
+                    relationship="allows", via="sg_rule",
+                    port_range=", ".join(sorted(set(port_labels))),
+                )
+
+        # 5. NAT Gateways
+        nat_kwargs = {"Filters": [{"Name": "vpc-id", "Values": vpc_id_list}]} if vpc_id_list else {}
+        for page in client.get_paginator("describe_nat_gateways").paginate(**nat_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_nat_gateways")
+            for nat in page.get("NatGateways", []):
+                self._ensure_not_cancelled()
+                nat_id = nat["NatGatewayId"]
+                nat_subnet_id = nat.get("SubnetId")
+                owner_id = nat.get("OwnerId", "")
+                name_tag = next((t["Value"] for t in nat.get("Tags", []) if t.get("Key") == "Name"), None)
+                node_id = self._make_node_id("vpc", f"nat/{nat_id}")
+                self._node(
+                    node_id,
+                    label=name_tag or nat_id,
+                    service="vpc",
+                    type="nat_gateway",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:natgateway/{nat_id}",
+                    state=nat.get("State"),
+                    connectivity_type=nat.get("ConnectivityType"),
+                    subnet_id=nat_subnet_id,
+                )
+                if nat_subnet_id:
+                    subnet_node = self._make_node_id("vpc", f"subnet/{nat_subnet_id}")
+                    self.store.add_edge(subnet_node, node_id, relationship="contains", via="subnet_nat_gateway")
+
+        # 6. Route Tables
+        rtb_kwargs = {"Filters": [{"Name": "vpc-id", "Values": vpc_id_list}]} if vpc_id_list else {}
+        for page in client.get_paginator("describe_route_tables").paginate(**rtb_kwargs):
+            self._ensure_not_cancelled()
+            self._increment_api_call("ec2", "describe_route_tables")
+            for rtb in page.get("RouteTables", []):
+                self._ensure_not_cancelled()
+                rtb_id = rtb["RouteTableId"]
+                rtb_vpc_id = rtb.get("VpcId")
+                owner_id = rtb.get("OwnerId", "")
+                name_tag = next((t["Value"] for t in rtb.get("Tags", []) if t.get("Key") == "Name"), None)
+                is_main = any(a.get("Main", False) for a in rtb.get("Associations", []))
+                node_id = self._make_node_id("vpc", f"rtb/{rtb_id}")
+                self._node(
+                    node_id,
+                    label=name_tag or rtb_id,
+                    service="vpc",
+                    type="route_table",
+                    arn=f"arn:aws:ec2:{self._region}:{owner_id}:route-table/{rtb_id}",
+                    is_main=is_main,
+                )
+                if rtb_vpc_id:
+                    vpc_node = self._make_node_id("vpc", f"vpc/{rtb_vpc_id}")
+                    self.store.add_edge(vpc_node, node_id, relationship="contains", via="vpc_route_table")
+
+                # Subnet associations
+                for assoc in rtb.get("Associations", []):
+                    assoc_subnet = assoc.get("SubnetId")
+                    if assoc_subnet:
+                        subnet_node = self._make_node_id("vpc", f"subnet/{assoc_subnet}")
+                        self.store.add_edge(node_id, subnet_node, relationship="routes", via="rtb_subnet_association")
+
+                # Route targets (IGW and NAT)
+                for route in rtb.get("Routes", []):
+                    gw_id = route.get("GatewayId", "")
+                    if gw_id.startswith("igw-"):
+                        igw_node = self._make_node_id("vpc", f"igw/{gw_id}")
+                        self.store.add_edge(igw_node, node_id, relationship="routes_via", via="igw_route")
+                    nat_gw_id = route.get("NatGatewayId", "")
+                    if nat_gw_id:
+                        nat_node = self._make_node_id("vpc", f"nat/{nat_gw_id}")
+                        self.store.add_edge(nat_node, node_id, relationship="routes_via", via="nat_route")
 
     # ── ECS ──────────────────────────────────────────────────────────────────
 
@@ -1224,6 +1734,17 @@ class AWSGraphScanner:
                     self._node(role_node, service="iam")
                     self.store.add_edge(role_node, svc_node, relationship="assumed_by",
                                         via="ecs_service_role")
+
+                # ECS VPC topology edges
+                net_config = svc.get("networkConfiguration", {}).get("awsvpcConfiguration", {})
+                for ecs_subnet_id in net_config.get("subnets", []):
+                    ecs_subnet_node = self._make_node_id("vpc", f"subnet/{ecs_subnet_id}")
+                    self._node(ecs_subnet_node, label=ecs_subnet_id, service="vpc", type="subnet")
+                    self.store.add_edge(ecs_subnet_node, svc_node, relationship="contains", via="ecs_vpc_placement")
+                for ecs_sg_id in net_config.get("securityGroups", []):
+                    ecs_sg_node = self._make_node_id("vpc", f"sg/{ecs_sg_id}")
+                    self._node(ecs_sg_node, label=ecs_sg_id, service="vpc", type="security_group")
+                    self.store.add_edge(ecs_sg_node, svc_node, relationship="protects", via="ecs_security_group")
 
     # ── S3 ───────────────────────────────────────────────────────────────────
 
@@ -1321,6 +1842,26 @@ class AWSGraphScanner:
                     state=db.get("DBInstanceStatus"),
                     multi_az=db.get("MultiAZ"),
                 )
+                # RDS VPC topology edges
+                subnet_group = db.get("DBSubnetGroup", {})
+                rds_vpc_id = subnet_group.get("VpcId")
+                if rds_vpc_id:
+                    rds_vpc_node = self._make_node_id("vpc", f"vpc/{rds_vpc_id}")
+                    self._node(rds_vpc_node, label=rds_vpc_id, service="vpc", type="vpc")
+                    self.store.add_edge(rds_vpc_node, node_id, relationship="contains", via="rds_vpc_membership")
+                    for rds_subnet in subnet_group.get("Subnets", []):
+                        rds_subnet_id = rds_subnet.get("SubnetIdentifier")
+                        if rds_subnet_id:
+                            rds_subnet_node = self._make_node_id("vpc", f"subnet/{rds_subnet_id}")
+                            self._node(rds_subnet_node, label=rds_subnet_id, service="vpc", type="subnet")
+                            self.store.add_edge(rds_subnet_node, node_id, relationship="contains", via="rds_subnet_placement")
+                for vsg in db.get("VpcSecurityGroups", []):
+                    rds_sg_id = vsg.get("VpcSecurityGroupId")
+                    if rds_sg_id:
+                        rds_sg_node = self._make_node_id("vpc", f"sg/{rds_sg_id}")
+                        self._node(rds_sg_node, label=rds_sg_id, service="vpc", type="security_group")
+                        self.store.add_edge(rds_sg_node, node_id, relationship="protects", via="rds_security_group")
+
                 cluster_id = db.get("DBClusterIdentifier")
                 if cluster_id:
                     instance_cluster_map.append((node_id, cluster_id))
@@ -1751,6 +2292,13 @@ class AWSGraphScanner:
                     node_type=cluster.get("CacheNodeType"),
                     state=cluster.get("CacheClusterStatus"),
                 )
+                # ElastiCache VPC topology edges
+                for ec_sg in cluster.get("SecurityGroups", []):
+                    ec_sg_id = ec_sg.get("SecurityGroupId")
+                    if ec_sg_id:
+                        ec_sg_node = self._make_node_id("vpc", f"sg/{ec_sg_id}")
+                        self._node(ec_sg_node, label=ec_sg_id, service="vpc", type="security_group")
+                        self.store.add_edge(ec_sg_node, node_id, relationship="protects", via="elasticache_security_group")
 
     # ── Glue ─────────────────────────────────────────────────────────────────
 
@@ -2179,6 +2727,18 @@ class AWSGraphScanner:
                         db_name=cluster.get("DBName"),
                         vpc_id=cluster.get("VpcId"),
                     )
+                    # Redshift VPC topology edges
+                    rs_vpc_id = cluster.get("VpcId")
+                    if rs_vpc_id:
+                        rs_vpc_node = self._make_node_id("vpc", f"vpc/{rs_vpc_id}")
+                        self._node(rs_vpc_node, label=rs_vpc_id, service="vpc", type="vpc")
+                        self.store.add_edge(rs_vpc_node, node_id, relationship="contains", via="redshift_vpc_membership")
+                    for vsg in cluster.get("VpcSecurityGroups", []):
+                        rs_sg_id = vsg.get("VpcSecurityGroupId")
+                        if rs_sg_id:
+                            rs_sg_node = self._make_node_id("vpc", f"sg/{rs_sg_id}")
+                            self._node(rs_sg_node, label=rs_sg_id, service="vpc", type="security_group")
+                            self.store.add_edge(rs_sg_node, node_id, relationship="protects", via="redshift_security_group")
         except (ClientError, BotoCoreError) as exc:
             logger.warning("Redshift scan failed: %s", exc)
 

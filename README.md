@@ -1,4 +1,4 @@
-# cloudwire
+# Cloudwire
 
 Scan your AWS account and visualize resource dependencies as an interactive graph — directly in your browser, running entirely on your local machine.
 

@@ -49,6 +49,7 @@ export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, 
   if (pathHighlight) color = "#ffffff";
   else if (blastEdge === "up") color = "#ff9900";
   else if (blastEdge === "down") color = "#00e7ff";
+  else if (edge.relationship === "allows") color = "#ff6677";
 
   const sourceRadius = nodeRadius(sourceNode);
   const targetRadius = nodeRadius(targetNode);
@@ -93,7 +94,9 @@ export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, 
           opacity="0.9"
           letterSpacing="0.04em"
         >
-          {String(edge.relationship || edge.label || "")}
+          {edge.relationship === "allows" && edge.port_range
+          ? edge.port_range
+          : String(edge.relationship || edge.label || "")}
         </text>
       )}
     </g>

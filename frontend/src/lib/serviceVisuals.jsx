@@ -25,7 +25,7 @@ export function normalizeServiceName(service) {
   return aliases[key] || key;
 }
 
-export function createServiceIcon(service, color) {
+export function createServiceIcon(service, color, type) {
   switch (normalizeServiceName(service)) {
     case "apigateway":
       return wrapIcon(
@@ -77,6 +77,28 @@ export function createServiceIcon(service, color) {
       return wrapIcon(
         <>
           <path d="M6 4h6l2.5 4L9 14 3.5 8 6 4z" />
+        </>,
+        color
+      );
+    case "vpc":
+      // Internet anchor node gets a globe icon
+      if (type === "internet") {
+        return wrapIcon(
+          <>
+            <circle cx="9" cy="9" r="6.5" />
+            <ellipse cx="9" cy="9" rx="3" ry="6.5" />
+            <line x1="2.5" y1="9" x2="15.5" y2="9" />
+            <line x1="3.5" y1="5.5" x2="14.5" y2="5.5" />
+            <line x1="3.5" y1="12.5" x2="14.5" y2="12.5" />
+          </>,
+          color
+        );
+      }
+      return wrapIcon(
+        <>
+          <rect x="3" y="3.5" width="12" height="11" rx="2" />
+          <line x1="3" y1="7.5" x2="15" y2="7.5" />
+          <line x1="9" y1="7.5" x2="9" y2="14.5" />
         </>,
         color
       );
@@ -278,6 +300,7 @@ export const SERVICE_VISUALS = {
   secretsmanager: { label: "Secrets Manager", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Secrets store — securely manages API keys, passwords, and credentials" },
   kms: { label: "KMS", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Key management — creates and controls encryption keys for your data" },
   iam: { label: "IAM", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Identity and access management — controls who can access what resources" },
+  vpc: { label: "VPC Network", color: "#248814", accent: "#5cc044", role: "network", description: "Network topology — VPCs, subnets, security groups, gateways, and routing" },
   unknown: { label: "AWS Resource", color: "#6f8596", accent: "#a8bac7", role: "unknown", description: "AWS resource — part of your cloud architecture" },
 };
 

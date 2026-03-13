@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -359,15 +360,18 @@ class ScanJobStore:
         mode: ScanMode,
         include_iam_inference: bool,
         include_resource_describes: bool,
+        tag_arns: Optional[List[str]] = None,
     ) -> str:
         ordered_services = ",".join(sorted(services))
-        return "|".join(
-            [
-                account_id,
-                region,
-                ordered_services,
-                mode,
-                f"iam={int(include_iam_inference)}",
-                f"describe={int(include_resource_describes)}",
-            ]
-        )
+        parts = [
+            account_id,
+            region,
+            ordered_services,
+            mode,
+            f"iam={int(include_iam_inference)}",
+            f"describe={int(include_resource_describes)}",
+        ]
+        if tag_arns:
+            arns_str = ",".join(sorted(tag_arns))
+            parts.append(f"tags={hashlib.sha256(arns_str.encode()).hexdigest()[:16]}")
+        return "|".join(parts)

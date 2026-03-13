@@ -52,6 +52,8 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
     pathNodeIds,
     pathEdgeIds,
     blastRadius,
+    onAnnotationClick,
+    collapsedContainers,
   },
   ref
 ) {
@@ -339,19 +341,38 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         </defs>
         <ViewportScaleContext.Provider value={viewport.scale}>
         <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.scale})`}>
-          {annotations.map((annotation) => (
-            <g key={annotation.id} className={`graph-annotation ${annotation.tone}`}>
-              <rect
-                x={annotation.minX}
-                y={annotation.minY}
-                width={annotation.maxX - annotation.minX}
-                height={annotation.maxY - annotation.minY}
-                rx="28"
-              />
-              <text x={annotation.minX + 18} y={annotation.minY + 26}>{annotation.title}</text>
-              <text x={annotation.minX + 18} y={annotation.minY + 44} className="graph-annotation-subtitle">{annotation.subtitle}</text>
-            </g>
-          ))}
+          {annotations.map((annotation) => {
+            const isContainer = annotation.tone && annotation.tone.includes("container");
+            const isCollapsed = isContainer && collapsedContainers && collapsedContainers.has(annotation.id);
+            return (
+              <g
+                key={annotation.id}
+                className={`graph-annotation ${annotation.tone}`}
+                onClick={isContainer && onAnnotationClick ? (e) => { e.stopPropagation(); onAnnotationClick(annotation.id); } : undefined}
+              >
+                <rect
+                  x={annotation.minX}
+                  y={annotation.minY}
+                  width={annotation.maxX - annotation.minX}
+                  height={annotation.maxY - annotation.minY}
+                  rx={annotation.rx || 28}
+                />
+                <text x={annotation.minX + 18} y={annotation.minY + 26}>{annotation.title}</text>
+                <text x={annotation.minX + 18} y={annotation.minY + 44} className="graph-annotation-subtitle">{annotation.subtitle}</text>
+                {isContainer && (
+                  <text
+                    x={annotation.maxX - 24}
+                    y={annotation.minY + 26}
+                    fontSize="14"
+                    fontWeight="bold"
+                    className="graph-annotation-subtitle"
+                  >
+                    {isCollapsed ? "+" : "\u2212"}
+                  </text>
+                )}
+              </g>
+            );
+          })}
 
           {renderEdges.map((edge) => {
             const sourceNode = nodeMap.get(edge.source);

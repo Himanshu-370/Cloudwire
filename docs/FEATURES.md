@@ -40,12 +40,12 @@ Scan any of the 29 supported AWS regions. CloudFront distributions are global an
 ### Interactive canvas
 Pan, zoom, and drag the canvas freely. The graph supports thousands of nodes without performance degradation through viewport virtualization — only nodes visible in the current view are rendered.
 
-### Three layout modes
-- **Flow** (default) — left-to-right sequential layout following data flow direction. Entry points appear on the left with START badges, terminal nodes on the right with END badges. Good for tracing how requests move through your system.
-- **Circular** — nodes grouped by service in circular clusters. Good for getting an overview of what exists.
+### Four layout modes
+- **Circular** (default) — nodes grouped by service in circular clusters. Good for getting an overview of what exists.
+- **Flow** — left-to-right sequential layout following data flow direction. Entry points appear on the left with START badges, terminal nodes on the right with END badges. Good for tracing how requests move through your system.
 - **Swimlane** — nodes arranged in horizontal lanes by role (triggers, processors, storage, queues). Good for comparing resources across services side by side.
 
-Switch between layouts at any time without re-scanning.
+Switch between layouts at any time from the layout dropdown in the graph toolbar, without re-scanning.
 
 ### Node detail levels
 The graph adapts to zoom level:
@@ -88,10 +88,39 @@ Select a source and destination node to find the shortest connection path betwee
 Narrow the graph to show only a selected node and its immediate neighbors. Adjust the hop depth (1, 2, or 3 hops) to control how much context you see. Everything outside the focus is faded out.
 
 ### Flow animation
-Animated data flow along graph edges is enabled by default, showing the direction traffic moves through your architecture. Animated particles travel along edges from source to target. Toggle off with the FLOW button in the toolbar.
+Animated data flow along graph edges is enabled by default, showing the direction traffic moves through your architecture. Animated particles travel along edges from source to target. Toggle off with the ANIMATE button in the toolbar.
 
 ### START / END badges
 In flow layout, entry points (nodes with outgoing edges but no incoming edges) are labelled **START** and terminal nodes (incoming but no outgoing) are labelled **END**, making it easy to see where data enters and exits your architecture.
+
+---
+
+## VPC network topology
+
+When you include **VPC Network** in your scan, CloudWire renders a CloudMapper-style network diagram showing how your resources sit inside VPCs, subnets, and availability zones.
+
+### Scoped VPC scanning (two-phase)
+VPC scanning runs after all other services complete (Phase 2). CloudWire only fetches infrastructure for VPCs that your scanned resources actually reference — if your Lambdas and RDS instances use 2 out of 15 VPCs, only those 2 are scanned. This dramatically reduces API calls and graph clutter.
+
+### Internet anchor nodes
+Each VPC with an Internet Gateway gets a synthetic **Internet** node showing the path from the public internet into your infrastructure.
+
+### Security group rule edges
+Inbound SG rules are parsed into labeled edges showing port ranges (e.g. `443/tcp`, `22/tcp`, `all`). Rules open to `0.0.0.0/0` or `::/0` are flagged as internet-exposed regardless of protocol — SSH, HTTPS, or any port-specific rule open to the world will trigger the exposure badge.
+
+### Network exposure detection
+Resources reachable from the internet via IGW → public subnet → open security group are automatically flagged with an exposure path. Hover over an exposed resource to highlight the full path from Internet → IGW → Subnet → Security Group → Resource.
+
+### Container annotations
+VPCs, availability zones, and subnets render as nested background rectangles with distinct border styles:
+- **VPC** — solid border
+- **Availability Zone** — dashed border
+- **Subnet** — dotted border
+
+Click any container annotation to collapse or expand its children.
+
+### Tag filtering compatibility
+VPC topology nodes are preserved when using tag-based filtering. The filter walks VPC infrastructure ancestors to keep the full topology chain visible even when filtering to a subset of tagged resources.
 
 ---
 
@@ -108,6 +137,15 @@ Nodes with no connections to other scanned services are hidden by default to kee
 
 ### Clustering
 When a service has many resources, they're automatically collapsed into a single cluster node showing a count. Expand or collapse individual service clusters from the sidebar.
+
+### Tag-based scanning
+Switch to **Tags** mode to scan resources by AWS tags instead of by service. The workflow:
+1. Select one or more tag keys from the searchable multi-select dropdown
+2. Tag values from all selected keys are merged and shown in a second searchable multi-select dropdown
+3. Select values and click **ADD FILTER** to create filter chips
+4. Click **Scan by tags** to discover matching resources and scan only the relevant services
+
+Multiple tag filters combine as AND conditions. The discovered services are scanned automatically — your manual service selections are preserved for when you switch back to service-based scanning.
 
 ---
 
@@ -142,7 +180,7 @@ Generate an automatic architecture summary for the scanned graph. The summary de
 | EC2 | All instances with state | → VPC, Subnet, Security Group, IAM Instance Profile |
 | ECS | Clusters and services | → task definitions, → load balancers/target groups, → service roles |
 | S3 | All buckets | → Lambda notifications, ← CloudFront origins, ← Glue crawler targets |
-| RDS | DB instances and clusters with status | — |
+| RDS | DB instances and clusters with status | → VPC, Subnet, Security Group |
 | Step Functions | All state machines | ← EventBridge targets, ← API Gateway integrations |
 | Kinesis | All streams | ← Lambda event sources, ← API Gateway integrations |
 | IAM | Roles (capped at 200) | → Lambda (role-to-function edges), policy-based service inference |
@@ -150,12 +188,13 @@ Generate an automatic architecture summary for the scanned graph. The summary de
 | CloudFront | All distributions with status | → S3 origins, → API Gateway origins, → ALB/ELB origins, → Lambda@Edge associations |
 | Route 53 | Hosted zones and record sets | → API Gateway, → S3 website, → ELB alias targets |
 | ElastiCache | All cache clusters with status | ← Lambda env var references |
-| Redshift | All clusters | — |
+| Redshift | All clusters | → VPC, Subnet, Security Group |
 | Glue | Jobs, crawlers, and triggers | → S3/DynamoDB crawler targets, → output databases, → job/crawler trigger actions |
 | AppSync | All GraphQL APIs | — |
 | Secrets Manager | All secrets | — |
 | KMS | All keys | — |
 | ELB | Load balancers | ← CloudFront origins, ← Route 53 aliases, ← ECS services |
+| VPC Network | VPCs, subnets, security groups, internet gateways, NAT gateways, route tables | → Internet anchor nodes, → SG rule edges with port labels, → AZ grouping; scoped to VPCs referenced by other services |
 | Everything else | Tagged resources via Resource Groups Tagging API | — |
 
 ---

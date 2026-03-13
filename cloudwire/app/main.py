@@ -23,12 +23,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .models import (
+    _REGION_RE,
     APIErrorResponse,
     GraphResponse,
     ResourceResponse,
     ScanJobCreateResponse,
     ScanJobStatusResponse,
     ScanRequest,
+    TagKeysResponse,
+    TagResourcesResponse,
+    TagValuesResponse,
     normalize_service_name,
 )
 from .scan_jobs import ScanJobStore
@@ -221,6 +225,40 @@ async def unexpected_exception_handler(_: Request, exc: Exception) -> JSONRespon
 
 
 # ---------------------------------------------------------------------------
+# Tag discovery helper
+# ---------------------------------------------------------------------------
+
+def _tagging_client(region: str):
+    session = boto3.session.Session(region_name=region)
+    return session.client(
+        "resourcegroupstaggingapi",
+        config=Config(
+            retries={"mode": "adaptive", "max_attempts": 10},
+            max_pool_connections=8,
+            connect_timeout=3,
+            read_timeout=10,
+        ),
+    )
+
+
+def _validate_region(region: str) -> str:
+    cleaned = region.strip()
+    if not cleaned or not _REGION_RE.match(cleaned):
+        raise APIError(
+            status_code=422,
+            code="validation_error",
+            message=f"'{cleaned}' is not a valid AWS region identifier (e.g. us-east-1)",
+        )
+    return cleaned
+
+
+def _service_from_arn(arn: str) -> str:
+    parts = arn.split(":")
+    service = parts[2] if len(parts) > 2 else ""
+    return service if service else ""
+
+
+# ---------------------------------------------------------------------------
 # Scan runner (background thread)
 # ---------------------------------------------------------------------------
 
@@ -231,6 +269,7 @@ def _run_scan_job(
     services: List[str],
     account_id: str,
     options: ScanExecutionOptions,
+    tag_arns: Optional[List[str]] = None,
 ) -> None:
     job_store.mark_running(job_id)
     if job_store.is_cancel_requested(job_id):
@@ -259,6 +298,12 @@ def _run_scan_job(
         if job_store.is_cancel_requested(job_id):
             job_store.mark_cancelled(job_id)
             return
+        # Post-scan ARN filtering for tag-based scans
+        if tag_arns:
+            allowed = set(tag_arns)
+            removed = job.graph_store.filter_by_arns(allowed)
+            if removed:
+                job.graph_store.add_warning(f"Tag filter removed {removed} resource(s) not matching selected tags or their neighbors.")
         job_store.mark_completed(job_id, ttl_seconds=_cache_ttl_seconds(options.mode))
     except ScanCancelledError:
         job.graph_store.add_warning("Scan cancelled by user request.")
@@ -321,6 +366,8 @@ def create_scan_job(payload: ScanRequest) -> Dict[str, Any]:
     options = _resolve_scan_options(payload)
     account_id = _resolve_account_id(payload.region)
 
+    tag_arns = payload.tag_arns
+
     cache_key = ScanJobStore.build_cache_key(
         account_id=account_id,
         region=payload.region,
@@ -328,6 +375,7 @@ def create_scan_job(payload: ScanRequest) -> Dict[str, Any]:
         mode=options.mode,
         include_iam_inference=options.include_iam_inference,
         include_resource_describes=options.include_resource_describes,
+        tag_arns=tag_arns,
     )
     reusable_job_id, cached = job_store.find_reusable_job(
         cache_key=cache_key,
@@ -352,6 +400,8 @@ def create_scan_job(payload: ScanRequest) -> Dict[str, Any]:
         include_iam_inference=options.include_iam_inference,
         include_resource_describes=options.include_resource_describes,
     )
+    # Capture tag_arns in local scope for the lambda closure
+    _tag_arns = tag_arns
     job_store.submit_job(
         job.id,
         lambda: _run_scan_job(
@@ -360,6 +410,7 @@ def create_scan_job(payload: ScanRequest) -> Dict[str, Any]:
             services=services,
             account_id=account_id,
             options=options,
+            tag_arns=_tag_arns,
         ),
     )
     return {
@@ -422,6 +473,148 @@ def stop_scan_job(job_id: str) -> Dict[str, Any]:
             message=f"Scan job '{job_id}' was not found.",
             details={"job_id": job_id},
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Tag discovery endpoints
+# ---------------------------------------------------------------------------
+
+def _handle_tagging_error(exc: Exception, region: str, operation: str):
+    """Convert AWS errors from tagging API to APIError."""
+    logger.warning("Tag API error in %s (region=%s): %s: %s", operation, region, type(exc).__name__, exc)
+    if isinstance(exc, (NoCredentialsError, PartialCredentialsError, CredentialRetrievalError)):
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="aws_credentials_missing",
+            message=_friendly_exception_message(exc),
+        ) from exc
+    if isinstance(exc, ClientError):
+        aws_code = exc.response.get("Error", {}).get("Code", "")
+        aws_message = exc.response.get("Error", {}).get("Message", "")
+        if aws_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess", "UnauthorizedOperation"):
+            raise APIError(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="tags_access_denied",
+                message=f"Access denied for {operation}. Ensure the IAM role has tag:GetTagKeys, tag:GetTagValues, and tag:GetResources permissions. ({aws_code}: {aws_message})",
+                details={"aws_error_code": aws_code, "region": region},
+            ) from exc
+        raise APIError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code="tags_api_error",
+            message=f"AWS tagging API error: {aws_code}: {aws_message}" if aws_message else _friendly_exception_message(exc),
+            details={"aws_error_code": aws_code, "region": region},
+        ) from exc
+    if isinstance(exc, (EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError)):
+        raise APIError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code="aws_endpoint_unreachable",
+            message=_friendly_exception_message(exc),
+            details={"region": region},
+        ) from exc
+    if isinstance(exc, BotoCoreError):
+        raise APIError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            code="tags_api_error",
+            message=_friendly_exception_message(exc),
+            details={"region": region},
+        ) from exc
+    # Fallback for unexpected exception types
+    raise APIError(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code="unexpected_error",
+        message=_friendly_exception_message(exc),
+    ) from exc
+
+
+@api.get(
+    "/tags/keys",
+    response_model=TagKeysResponse,
+    responses={401: {"model": APIErrorResponse}, 403: {"model": APIErrorResponse}, 502: {"model": APIErrorResponse}},
+)
+def get_tag_keys(region: str = Query(default="us-east-1")) -> Dict[str, Any]:
+    region = _validate_region(region)
+    try:
+        client = _tagging_client(region)
+        keys = []
+        paginator = client.get_paginator("get_tag_keys")
+        for page in paginator.paginate():
+            keys.extend(page.get("TagKeys", []))
+        return {"keys": sorted(set(keys))}
+    except Exception as exc:
+        _handle_tagging_error(exc, region, "get_tag_keys")
+
+
+@api.get(
+    "/tags/values",
+    response_model=TagValuesResponse,
+    responses={401: {"model": APIErrorResponse}, 403: {"model": APIErrorResponse}, 502: {"model": APIErrorResponse}},
+)
+def get_tag_values(
+    region: str = Query(default="us-east-1"),
+    key: str = Query(..., min_length=1),
+) -> Dict[str, Any]:
+    region = _validate_region(region)
+    try:
+        client = _tagging_client(region)
+        values = []
+        paginator = client.get_paginator("get_tag_values")
+        for page in paginator.paginate(Key=key):
+            values.extend(page.get("TagValues", []))
+        return {"key": key, "values": sorted(set(values))}
+    except Exception as exc:
+        _handle_tagging_error(exc, region, "get_tag_values")
+
+
+@api.get(
+    "/tags/resources",
+    response_model=TagResourcesResponse,
+    responses={401: {"model": APIErrorResponse}, 403: {"model": APIErrorResponse}, 502: {"model": APIErrorResponse}},
+)
+def get_tag_resources(
+    region: str = Query(default="us-east-1"),
+    tag_filters: str = Query(..., description="JSON array of {Key, Values} filter objects"),
+) -> Dict[str, Any]:
+    import json as _json
+
+    region = _validate_region(region)
+
+    try:
+        parsed_filters = _json.loads(tag_filters)
+        if not isinstance(parsed_filters, list):
+            raise ValueError("tag_filters must be a JSON array")
+        for i, entry in enumerate(parsed_filters):
+            if not isinstance(entry, dict):
+                raise ValueError(f"tag_filters[{i}] must be an object")
+            if "Key" not in entry:
+                raise ValueError(f"tag_filters[{i}] is missing required field 'Key'")
+            if not isinstance(entry.get("Key"), str):
+                raise ValueError(f"tag_filters[{i}].Key must be a string")
+            if "Values" in entry and not isinstance(entry["Values"], list):
+                raise ValueError(f"tag_filters[{i}].Values must be an array")
+    except (ValueError, _json.JSONDecodeError) as exc:
+        raise APIError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="validation_error",
+            message=f"Invalid tag_filters JSON: {exc}",
+        ) from exc
+
+    try:
+        client = _tagging_client(region)
+        arns = []
+        paginator = client.get_paginator("get_resources")
+        for page in paginator.paginate(
+            TagFilters=parsed_filters,
+            ResourcesPerPage=100,
+        ):
+            for entry in page.get("ResourceTagMappingList", []):
+                arn = entry.get("ResourceARN")
+                if arn:
+                    arns.append(arn)
+
+        services = sorted(s for s in set(_service_from_arn(arn) for arn in arns) if s)
+        return {"arns": arns, "services": services}
+    except Exception as exc:
+        _handle_tagging_error(exc, region, "get_resources")
 
 
 app.include_router(api)

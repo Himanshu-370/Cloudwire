@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { AWS_REGIONS } from "../../lib/awsRegions";
 import { getServiceVisual } from "../../lib/serviceVisuals.jsx";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { TagFilterBar } from "./TagFilterBar";
 
 const AWS_SERVICE_GROUPS = [
   {
@@ -41,6 +43,7 @@ const AWS_SERVICE_GROUPS = [
   {
     label: "Networking",
     services: [
+      { value: "vpc", label: "VPC Network" },
       { value: "cloudfront", label: "CloudFront" },
       { value: "route53", label: "Route 53" },
       { value: "elb", label: "ELB" },
@@ -63,15 +66,8 @@ const ALL_SERVICES = AWS_SERVICE_GROUPS.flatMap((g) => g.services);
 function ServiceMultiSelect({ selectedServices, onChange }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function handleClick(e) {
-      if (!containerRef.current?.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(containerRef, close, open);
 
   const toggle = useCallback((value) => {
     onChange(
@@ -175,6 +171,12 @@ export function TopBar({
   forceRefresh,
   onForceRefreshChange,
   warnings,
+  // Tag-based filtering props
+  scanFilterMode,
+  onScanFilterModeChange,
+  tagDiscovery,
+  onScanByTags,
+  tagScanLoading,
 }) {
   return (
     <header className="topbar-shell">
@@ -191,6 +193,29 @@ export function TopBar({
         </div>
         <div className="topbar-divider" />
         <span className="topbar-kicker">AWS RESOURCE VISUALIZER</span>
+
+        {/* Scan filter mode toggle */}
+        {onScanFilterModeChange && (
+          <>
+            <div className="topbar-divider" />
+            <div className="topbar-view-toggle">
+              <button
+                className={`topbar-view-btn ${scanFilterMode === "services" ? "active" : ""}`}
+                onClick={() => onScanFilterModeChange("services")}
+                title="Select services manually to scan"
+              >
+                SERVICES
+              </button>
+              <button
+                className={`topbar-view-btn ${scanFilterMode === "tags" ? "active" : ""}`}
+                onClick={() => onScanFilterModeChange("tags")}
+                title="Discover resources by AWS tags (e.g. Team, Environment)"
+              >
+                TAGS
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="topbar-right">
@@ -207,17 +232,42 @@ export function TopBar({
           <span className="topbar-done">
             SCAN COMPLETE {jobStatus?.node_count ? `· ${jobStatus.node_count} RESOURCES` : ""}
             {warnings?.length > 0 && (
-              <span className="topbar-warn-count"> · ⚠ {warnings.length} warnings</span>
+              <span className="topbar-warn-count"> · {warnings.length} warnings</span>
             )}
           </span>
         )}
 
-        <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} />
+        {/* SERVICES mode controls */}
+        {scanFilterMode !== "tags" && (
+          <>
+            <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} />
 
-        <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
-          <option value="quick">Quick</option>
-          <option value="deep">Deep</option>
-        </select>
+            <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
+              <option value="quick">Quick</option>
+              <option value="deep">Deep</option>
+            </select>
+          </>
+        )}
+
+        {/* TAGS mode controls */}
+        {scanFilterMode === "tags" && tagDiscovery && (
+          <TagFilterBar
+            tagKeys={tagDiscovery.tagKeys}
+            tagKeysLoading={tagDiscovery.tagKeysLoading}
+            tagKeysError={tagDiscovery.tagKeysError}
+            selectedTagKeys={tagDiscovery.selectedTagKeys}
+            onToggleTagKey={tagDiscovery.toggleTagKey}
+            tagValues={tagDiscovery.tagValues}
+            tagValuesLoading={tagDiscovery.tagValuesLoading}
+            selectedTagValues={tagDiscovery.selectedTagValues}
+            onToggleTagValue={tagDiscovery.toggleTagValue}
+            onApplyTagFilter={tagDiscovery.addTagFilter}
+            activeTagFilters={tagDiscovery.activeTagFilters}
+            onRemoveTagFilter={tagDiscovery.removeTagFilter}
+            onClearAllTagFilters={tagDiscovery.clearAllTagFilters}
+            onRefreshTagKeys={tagDiscovery.refreshTagKeys}
+          />
+        )}
 
         <select className="topbar-compact-select topbar-region-select" value={region} onChange={(event) => onRegionChange(event.target.value)}>
           {AWS_REGIONS.map((awsRegion) => (
@@ -236,6 +286,7 @@ export function TopBar({
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 2L10 5H7M2 10L2 7H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 4.5A4 4 0 0 1 9.5 3.5M9.5 7.5A4 4 0 0 1 2.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
         </label>
 
+        {/* Action buttons */}
         {scanLoading ? (
           <button
             className="topbar-secondary-btn"
@@ -243,6 +294,14 @@ export function TopBar({
             disabled={!jobStatus || Boolean(jobStatus?.cancellation_requested)}
           >
             {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
+          </button>
+        ) : scanFilterMode === "tags" ? (
+          <button
+            className="topbar-primary-btn topbar-primary-btn--tags"
+            onClick={onScanByTags}
+            disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
+          >
+            {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
           </button>
         ) : (
           <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>

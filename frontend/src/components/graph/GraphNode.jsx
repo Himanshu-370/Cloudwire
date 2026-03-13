@@ -13,10 +13,12 @@ export const NODE_DIMENSIONS = {
   group: { width: 108, height: 108, radius: 34 },
   selected: { width: 96, height: 96, radius: 30 },
   cluster: { width: 112, height: 112, radius: 38 },
+  internet: { width: 112, height: 112, radius: 38 },
 };
 
 export function getNodeFrame(node, selected) {
   if (selected) return NODE_DIMENSIONS.selected;
+  if (String(node.type || "").toLowerCase() === "internet") return NODE_DIMENSIONS.internet;
   if (String(node.type || "").toLowerCase() === "cluster") return NODE_DIMENSIONS.cluster;
   if (String(node.type || "").toLowerCase() === "group") return NODE_DIMENSIONS.group;
   return NODE_DIMENSIONS.regular;
@@ -105,6 +107,23 @@ function getTooltipRows(node) {
   } else if (svc === "kms") {
     if (node.key_state) rows.push({ key: "state", val: node.key_state });
     if (node.key_usage) rows.push({ key: "usage", val: node.key_usage });
+  } else if (svc === "vpc") {
+    if (node.type) rows.push({ key: "type", val: node.type.replace(/_/g, " ") });
+    if (node.cidr_block) rows.push({ key: "CIDR", val: node.cidr_block });
+    if (node.availability_zone) rows.push({ key: "AZ", val: node.availability_zone });
+    if (node.group_name) rows.push({ key: "name", val: node.group_name });
+    if (node.is_default != null) rows.push({ key: "default", val: node.is_default ? "yes" : "no" });
+    if (node.allows_all_ingress != null) rows.push({ key: "open ingress", val: node.allows_all_ingress ? "YES" : "no" });
+    if (node.connectivity_type) rows.push({ key: "connectivity", val: node.connectivity_type });
+    if (node.is_main != null) rows.push({ key: "main route table", val: node.is_main ? "yes" : "no" });
+    if (Array.isArray(node.inbound_rules_parsed)) rows.push({ key: "inbound rules", val: `${node.inbound_rules_parsed.length} rule(s)` });
+    if (Array.isArray(node.outbound_rules_parsed)) rows.push({ key: "outbound rules", val: `${node.outbound_rules_parsed.length} rule(s)` });
+  }
+
+  // Exposed internet warning — applies to any service
+  if (node.exposed_internet) {
+    rows.push({ key: "EXPOSED", val: "internet-facing" });
+    if (node.internet_path) rows.push({ key: "path", val: node.internet_path });
   }
 
   // ARN — always last, truncated
@@ -162,7 +181,7 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
     ? "#f0a500"
     : "#3a5a6a";
 
-  const icon = createServiceIcon(node.service, visual.color);
+  const icon = createServiceIcon(node.service, visual.color, node.type);
   const showLabels = scale >= 0.45 || selected;
   const showRoleBadge = scale >= 0.55 && !isCluster && role && role !== "unknown";
   const roleMeta = ROLE_META[role] || ROLE_META.unknown;
@@ -232,6 +251,14 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
             </circle>
           )}
         </>
+      )}
+
+      {/* Exposed internet warning badge */}
+      {node.exposed_internet && (
+        <g>
+          <circle cx="14" cy="14" r="6" fill="#dd2222" opacity="0.9" />
+          <text x="14" y="17.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#fff">!</text>
+        </g>
       )}
 
       {/* Labels */}
