@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { useClickOutside } from "../../hooks/useClickOutside";
 
 function TagKeyDropdown({ keys, selectedKeys, onToggle, loading }) {
@@ -23,7 +23,7 @@ function TagKeyDropdown({ keys, selectedKeys, onToggle, loading }) {
           {loading
             ? "Loading..."
             : selectedKeys.length === 0
-            ? "Tag key..."
+            ? "Tag keys..."
             : selectedKeys.length === 1
             ? selectedKeys[0]
             : `${selectedKeys.length} keys`}
@@ -77,26 +77,35 @@ function TagKeyDropdown({ keys, selectedKeys, onToggle, loading }) {
   );
 }
 
-function TagValueDropdown({ values, selectedValues, onToggle, onApply, tagKeys, loading }) {
+function TagValueGroupedDropdown({
+  selectedKeys,
+  tagValuesByKey,
+  valuesLoadingKeys,
+  selectedValuesByKey,
+  onToggleValue,
+  onApply,
+  hasSelectedValues,
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(ref, close, open);
 
-  const prevTagKeysLenRef = useRef(tagKeys.length);
-  useEffect(() => {
-    if (tagKeys.length > 0 && tagKeys.length !== prevTagKeysLenRef.current && values.length > 0) {
+  // Auto-open when a new key is added (values will show as "Loading..." initially)
+  const prevKeyCountRef = useRef(0);
+  React.useEffect(() => {
+    if (selectedKeys.length > prevKeyCountRef.current) {
       setOpen(true);
     }
-    prevTagKeysLenRef.current = tagKeys.length;
-  }, [tagKeys.length, values.length]);
+    prevKeyCountRef.current = selectedKeys.length;
+  }, [selectedKeys.length]);
 
-  if (tagKeys.length === 0) return null;
+  if (selectedKeys.length === 0) return null;
 
-  const filtered = search
-    ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
-    : values;
+  const totalSelected = selectedKeys.reduce(
+    (sum, key) => sum + (selectedValuesByKey[key] || []).length, 0
+  );
 
   return (
     <div ref={ref} className="tag-filter-dropdown-wrap">
@@ -106,19 +115,15 @@ function TagValueDropdown({ values, selectedValues, onToggle, onApply, tagKeys, 
         title="Select tag values"
       >
         <span className="tag-filter-dropdown-label">
-          {loading
-            ? "Loading..."
-            : selectedValues.length === 0
+          {totalSelected === 0
             ? "Select values..."
-            : selectedValues.length === 1
-            ? selectedValues[0]
-            : `${selectedValues.length} values`}
+            : `${totalSelected} value${totalSelected !== 1 ? "s" : ""} selected`}
         </span>
         <span className="tag-filter-dropdown-caret">{open ? "\u25B2" : "\u25BC"}</span>
       </button>
 
       {open && (
-        <div className="tag-filter-dropdown-panel">
+        <div className="tag-filter-dropdown-panel tag-filter-dropdown-panel--grouped">
           <input
             className="tag-filter-search"
             type="text"
@@ -128,34 +133,51 @@ function TagValueDropdown({ values, selectedValues, onToggle, onApply, tagKeys, 
             autoFocus
           />
           <div className="tag-filter-value-list">
-            {filtered.length === 0 && (
-              <div className="tag-filter-empty">
-                {values.length === 0 ? "No values found" : "No matching values"}
-              </div>
-            )}
-            {filtered.map((val) => {
-              const checked = selectedValues.includes(val);
+            {selectedKeys.map((key) => {
+              const values = tagValuesByKey[key] || [];
+              const isLoading = valuesLoadingKeys.has(key);
+              const keySelected = selectedValuesByKey[key] || [];
+              const filtered = search
+                ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
+                : values;
+
               return (
-                <label key={val} className={`tag-filter-value-item ${checked ? "checked" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => onToggle(val)}
-                    className="tag-filter-checkbox"
-                  />
-                  <span className="tag-filter-value-check">
-                    {checked && (
-                      <svg viewBox="0 0 8 8" fill="none" width="8" height="8">
-                        <path d="M1 4l2 2 4-4" stroke="#ff9900" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </span>
-                  <span>{val}</span>
-                </label>
+                <div key={key} className="tag-filter-value-group">
+                  <div className="tag-filter-value-group-header">{key}</div>
+                  {isLoading && (
+                    <div className="tag-filter-empty">Loading values...</div>
+                  )}
+                  {!isLoading && filtered.length === 0 && (
+                    <div className="tag-filter-empty">
+                      {values.length === 0 ? "No values" : "No matches"}
+                    </div>
+                  )}
+                  {filtered.map((val) => {
+                    const checked = keySelected.includes(val);
+                    return (
+                      <label key={val} className={`tag-filter-value-item ${checked ? "checked" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onToggleValue(key, val)}
+                          className="tag-filter-checkbox"
+                        />
+                        <span className="tag-filter-value-check">
+                          {checked && (
+                            <svg viewBox="0 0 8 8" fill="none" width="8" height="8">
+                              <path d="M1 4l2 2 4-4" stroke="#ff9900" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          )}
+                        </span>
+                        <span>{val}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>
-          {selectedValues.length > 0 && (
+          {hasSelectedValues && (
             <button
               className="tag-filter-apply-btn"
               onClick={() => {
@@ -164,7 +186,7 @@ function TagValueDropdown({ values, selectedValues, onToggle, onApply, tagKeys, 
                 setSearch("");
               }}
             >
-              ADD FILTER ({selectedValues.length})
+              ADD FILTER ({totalSelected})
             </button>
           )}
         </div>
@@ -179,10 +201,11 @@ export function TagFilterBar({
   tagKeysError,
   selectedTagKeys,
   onToggleTagKey,
-  tagValues,
-  tagValuesLoading = false,
-  selectedTagValues,
+  tagValuesByKey,
+  valuesLoadingKeys,
+  selectedValuesByKey,
   onToggleTagValue,
+  hasSelectedValues,
   onApplyTagFilter,
   activeTagFilters,
   onRemoveTagFilter,
@@ -198,13 +221,14 @@ export function TagFilterBar({
         loading={tagKeysLoading}
       />
 
-      <TagValueDropdown
-        values={tagValues}
-        selectedValues={selectedTagValues}
-        onToggle={onToggleTagValue}
+      <TagValueGroupedDropdown
+        selectedKeys={selectedTagKeys}
+        tagValuesByKey={tagValuesByKey}
+        valuesLoadingKeys={valuesLoadingKeys}
+        selectedValuesByKey={selectedValuesByKey}
+        onToggleValue={onToggleTagValue}
         onApply={onApplyTagFilter}
-        tagKeys={selectedTagKeys}
-        loading={tagValuesLoading}
+        hasSelectedValues={hasSelectedValues}
       />
 
       <button
@@ -221,15 +245,20 @@ export function TagFilterBar({
 
       {activeTagFilters.length > 0 && (
         <div className="tag-filter-chips">
-          {activeTagFilters.map((f) => (
-            <span key={f.key} className="tag-filter-chip">
-              <span className="tag-filter-chip-key">{f.key}</span>
-              <span className="tag-filter-chip-eq">=</span>
-              <span className="tag-filter-chip-val">{f.values.join(", ")}</span>
-              <button className="tag-filter-chip-remove" onClick={() => onRemoveTagFilter(f.key)}>
-                ×
-              </button>
-            </span>
+          {activeTagFilters.map((f, i) => (
+            <React.Fragment key={f.key}>
+              {i > 0 && <span className="tag-filter-chip-conjunction">AND</span>}
+              <span className="tag-filter-chip">
+                <span className="tag-filter-chip-key">{f.key}</span>
+                <span className="tag-filter-chip-eq">=</span>
+                <span className="tag-filter-chip-val" title={f.values.join(", ")}>
+                  {f.values.length <= 2 ? f.values.join(", ") : `${f.values[0]} +${f.values.length - 1}`}
+                </span>
+                <button className="tag-filter-chip-remove" onClick={() => onRemoveTagFilter(f.key)}>
+                  ×
+                </button>
+              </span>
+            </React.Fragment>
           ))}
           <button className="tag-filter-clear-btn" onClick={onClearAllTagFilters}>
             Clear all

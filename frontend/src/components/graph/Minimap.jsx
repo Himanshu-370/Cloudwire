@@ -65,7 +65,7 @@ export function Minimap({ nodes, viewport, containerRef, onPan }) {
             const visual = getServiceVisual(node.service);
             const np = node.position || { x: 0, y: 0 };
             const pos = toMini(np.x, np.y);
-            const r = node.type === "cluster" ? 4 : 2;
+            const r = (node.type === "cluster" && (node.id.startsWith("cluster:") || node.id.startsWith("collapsed:"))) ? 4 : 2;
             return (
               <circle key={node.id} cx={pos.x} cy={pos.y} r={r} fill={visual.color} opacity={0.65} />
             );

@@ -29,6 +29,7 @@ class SqsScannerMixin:
             for queue_url in queue_urls:
                 self._ensure_not_cancelled()
                 queue_name = queue_url.rstrip("/").split("/")[-1]
+                queue_arn = f"arn:aws:sqs:{self._region}:{self._account_id}:{queue_name}"
                 node_id = self._make_node_id("sqs", queue_url)
                 self._node(
                     node_id,
@@ -36,7 +37,7 @@ class SqsScannerMixin:
                     service="sqs",
                     type="queue",
                     queue_url=queue_url,
-                    arn=queue_url,
+                    arn=queue_arn,
                 )
             return
 

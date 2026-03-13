@@ -19,7 +19,7 @@ export const NODE_DIMENSIONS = {
 export function getNodeFrame(node, selected) {
   if (selected) return NODE_DIMENSIONS.selected;
   if (String(node.type || "").toLowerCase() === "internet") return NODE_DIMENSIONS.internet;
-  if (String(node.type || "").toLowerCase() === "cluster") return NODE_DIMENSIONS.cluster;
+  if (String(node.type || "").toLowerCase() === "cluster" && (node.id.startsWith("cluster:") || node.id.startsWith("collapsed:"))) return NODE_DIMENSIONS.cluster;
   if (String(node.type || "").toLowerCase() === "group") return NODE_DIMENSIONS.group;
   return NODE_DIMENSIONS.regular;
 }
@@ -152,7 +152,7 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
   const centerY = frame.height / 2;
   const outerRadius = Math.min(frame.width, frame.height) / 2 - 6;
   const innerRadius = outerRadius * 0.46;
-  const isCluster = String(node.type || "").toLowerCase() === "cluster";
+  const isCluster = String(node.type || "").toLowerCase() === "cluster" && (node.id.startsWith("cluster:") || node.id.startsWith("collapsed:"));
 
   const effectiveHighlighted = blastHighlight ? true : highlighted;
 

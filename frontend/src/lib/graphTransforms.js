@@ -344,25 +344,16 @@ export function partitionByConnectivity(nodes, edges) {
   };
 }
 
-// Collapse ISOLATED nodes of collapsed services into cluster nodes.
-// Connected nodes of collapsed services remain as individual nodes.
-// Edges involving only isolated nodes are rerouted; connected node edges stay as-is.
+// Collapse ALL nodes of collapsed services into a single cluster representative.
+// Edges are re-routed to/from the cluster node; intra-cluster edges are dropped.
 export function buildClusteredGraph(nodes, edges, collapsedServices) {
   if (!collapsedServices || collapsedServices.size === 0) return { nodes, edges };
-
-  // Determine which nodes have connections
-  const connectedIds = new Set();
-  edges.forEach((e) => {
-    connectedIds.add(e.source);
-    connectedIds.add(e.target);
-  });
 
   const nodeToCluster = new Map();
   const clusterData = new Map();
 
   nodes.forEach((node) => {
-    // Only cluster isolated nodes of collapsed services
-    if (collapsedServices.has(node.service) && !connectedIds.has(node.id)) {
+    if (collapsedServices.has(node.service)) {
       const clusterId = `cluster:${node.service}`;
       nodeToCluster.set(node.id, clusterId);
       if (!clusterData.has(node.service)) {
@@ -378,7 +369,7 @@ export function buildClusteredGraph(nodes, edges, collapsedServices) {
     id: `cluster:${service}`,
     service,
     type: "cluster",
-    label: `${data.count} ${service} (unconnected)`,
+    label: `${data.count} ${service}`,
     count: data.count,
     nodeIds: data.nodeIds,
   }));
@@ -388,14 +379,15 @@ export function buildClusteredGraph(nodes, edges, collapsedServices) {
     ...clusterNodes,
   ];
 
+  // Remap edges to point to/from cluster nodes, dedup, drop intra-cluster edges
   const edgeSet = new Set();
   const outEdges = [];
   edges.forEach((edge) => {
     const src = nodeToCluster.get(edge.source) || edge.source;
     const tgt = nodeToCluster.get(edge.target) || edge.target;
-    if (src === tgt) return;
-    const key = `${src}→${tgt}`;
-    if (edgeSet.has(key)) return;
+    if (src === tgt) return;           // intra-cluster: drop
+    const key = `${src}\u2192${tgt}`;
+    if (edgeSet.has(key)) return;      // dedup: N nodes -> 1 target = 1 edge
     edgeSet.add(key);
     outEdges.push({ ...edge, id: key, source: src, target: tgt });
   });

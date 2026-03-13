@@ -114,6 +114,9 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
     [localPositions, nodes, selectedNodeId]
   );
 
+  const nodesRef = useRef(nodesWithPositions);
+  nodesRef.current = nodesWithPositions;
+
   const nodeMap = useMemo(() => buildNodeMap(nodesWithPositions), [nodesWithPositions]);
 
   const nodeRoles = useMemo(() => {
@@ -174,13 +177,14 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   }, []);
 
   const fitGraph = useCallback(() => {
-    if (!containerRef.current || !nodesWithPositions.length) return;
+    if (!containerRef.current || !nodesRef.current.length) return;
     clearFitTimers();
-    const run = () => fitToNodes(containerRef.current, nodesWithPositions);
+    // Read from ref so delayed callbacks always use the latest positions
+    const run = () => fitToNodes(containerRef.current, nodesRef.current);
     window.requestAnimationFrame(run);
     fitTimersRef.current.push(window.setTimeout(run, 80));
-    fitTimersRef.current.push(window.setTimeout(run, 220));
-  }, [clearFitTimers, fitToNodes, nodesWithPositions]);
+    fitTimersRef.current.push(window.setTimeout(run, 250));
+  }, [clearFitTimers, fitToNodes]);
 
   // Keep a stable ref so the fit effect can always call the latest fitGraph
   // without listing fitGraph as a dependency (which would re-trigger on every

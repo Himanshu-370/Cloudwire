@@ -283,6 +283,181 @@ export function createServiceIcon(service, color, type) {
         </>,
         color
       );
+    case "emr":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <circle cx="9" cy="9" r="2.5" />
+          <path d="M6 4.5L12 13.5" />
+          <path d="M12 4.5L6 13.5" />
+        </>,
+        color
+      );
+    case "opensearch":
+      return wrapIcon(
+        <>
+          <circle cx="8" cy="8" r="4.5" />
+          <path d="M11.5 11.5l3 3" />
+        </>,
+        color
+      );
+    case "efs":
+      return wrapIcon(
+        <>
+          <path d="M3 5h12v8H3z" />
+          <path d="M3 9h12" />
+          <path d="M6 5v8" />
+        </>,
+        color
+      );
+    case "mq":
+      return wrapIcon(
+        <>
+          <rect x="3" y="4" width="12" height="10" rx="1.5" />
+          <path d="M6 7v4" />
+          <path d="M9 7v4" />
+          <path d="M12 7v4" />
+        </>,
+        color
+      );
+    case "eks":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <path d="M9 3v12" />
+          <path d="M3.5 6l11 6" />
+          <path d="M3.5 12l11-6" />
+        </>,
+        color
+      );
+    case "ecr":
+      return wrapIcon(
+        <>
+          <rect x="3" y="4" width="12" height="10" rx="2" />
+          <path d="M7 7l-2 2 2 2" />
+          <path d="M11 7l2 2-2 2" />
+        </>,
+        color
+      );
+    case "batch":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="5" height="5" rx="0.8" />
+          <rect x="10" y="3" width="5" height="5" rx="0.8" />
+          <rect x="3" y="10" width="5" height="5" rx="0.8" />
+          <rect x="10" y="10" width="5" height="5" rx="0.8" />
+        </>,
+        color
+      );
+    case "elasticbeanstalk":
+      return wrapIcon(
+        <>
+          <path d="M9 3v12" />
+          <path d="M5 6h8" />
+          <path d="M4 9h10" />
+          <path d="M5 12h8" />
+        </>,
+        color
+      );
+    case "kafka":
+      return wrapIcon(
+        <>
+          <circle cx="5" cy="5" r="2" />
+          <circle cx="13" cy="5" r="2" />
+          <circle cx="9" cy="13" r="2" />
+          <path d="M7 5h4" />
+          <path d="M6.5 6.5L8 11.5" />
+          <path d="M11.5 6.5L10 11.5" />
+        </>,
+        color
+      );
+    case "firehose":
+      return wrapIcon(
+        <>
+          <path d="M4 5h10l-3 4 3 4H4" />
+        </>,
+        color
+      );
+    case "wafv2":
+      return wrapIcon(
+        <>
+          <path d="M9 2L3 5v5c0 3.3 2.6 6.2 6 7 3.4-.8 6-3.7 6-7V5L9 2z" />
+          <path d="M7 9l2 2 3-4" />
+        </>,
+        color
+      );
+    case "guardduty":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="8" r="5" />
+          <path d="M9 5v4" />
+          <circle cx="9" cy="11" r="0.8" fill={color} />
+        </>,
+        color
+      );
+    case "cloudwatch":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <path d="M9 5v4h3" />
+        </>,
+        color
+      );
+    case "cloudtrail":
+      return wrapIcon(
+        <>
+          <path d="M3 13l4-5 3 3 4-8" />
+          <circle cx="14" cy="3" r="1.5" />
+        </>,
+        color
+      );
+    case "cloudformation":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="12" height="12" rx="1.5" />
+          <path d="M6 7l3 2-3 2" />
+          <path d="M10 11h3" />
+        </>,
+        color
+      );
+    case "athena":
+      return wrapIcon(
+        <>
+          <path d="M4 3h10l-2 12H6L4 3z" />
+          <path d="M5 7h8" />
+        </>,
+        color
+      );
+    case "sagemaker":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="4" r="2.5" />
+          <path d="M4 14c0-2.8 2.2-5 5-5s5 2.2 5 5" />
+          <circle cx="14" cy="8" r="1.5" />
+          <path d="M11 4.5l1.5 2.5" />
+        </>,
+        color
+      );
+    case "codepipeline":
+      return wrapIcon(
+        <>
+          <circle cx="5" cy="4" r="2" />
+          <circle cx="13" cy="9" r="2" />
+          <circle cx="5" cy="14" r="2" />
+          <path d="M7 4h4l2 5" />
+          <path d="M11 9l-4 5" />
+        </>,
+        color
+      );
+    case "codebuild":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="12" height="12" rx="1.5" />
+          <path d="M6 7l2 2-2 2" />
+          <path d="M10 11h3" />
+        </>,
+        color
+      );
     default:
       return wrapIcon(
         <>

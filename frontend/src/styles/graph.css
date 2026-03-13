@@ -127,6 +127,11 @@
   color: #00ff88;
   letter-spacing: 0.12em;
 }
+.topbar-discovered-hint {
+  font-size: 10px;
+  color: #5a7a8a;
+  cursor: default;
+}
 
 .topbar-primary-btn,
 .topbar-secondary-btn,
@@ -1303,6 +1308,50 @@
   text-transform: uppercase;
 }
 
+.graph-scan-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 10;
+  pointer-events: all;
+  background: rgba(5, 8, 13, 0.55);
+  backdrop-filter: blur(2px);
+}
+.graph-scan-loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #0f1e2a;
+  border-top-color: #ff9900;
+  border-radius: 50%;
+  animation: scan-spin 0.8s linear infinite;
+}
+@keyframes scan-spin {
+  to { transform: rotate(360deg); }
+}
+.graph-scan-loading-label {
+  font-size: 12px;
+  color: #5a7a8a;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.graph-scan-loading-progress {
+  width: 160px;
+  height: 3px;
+  background: #0f1e2a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.graph-scan-loading-progress-fill {
+  height: 100%;
+  background: #ff9900;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
 .graph-empty-state {
   position: absolute;
   top: 50%;
@@ -2199,6 +2248,27 @@
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   padding: 4px 0;
 }
+.tag-filter-dropdown-panel--grouped {
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 360px;
+}
+.tag-filter-value-group {
+  padding: 2px 0;
+}
+.tag-filter-value-group + .tag-filter-value-group {
+  border-top: 1px solid #1a2a3a;
+  margin-top: 2px;
+  padding-top: 4px;
+}
+.tag-filter-value-group-header {
+  font-size: 9px;
+  font-weight: 700;
+  color: #ff9900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px 2px;
+}
 .tag-filter-search {
   width: calc(100% - 12px);
   margin: 4px 6px;
@@ -2327,7 +2397,15 @@
 }
 .tag-filter-chip-key { font-weight: 600; }
 .tag-filter-chip-eq { color: #5a7a8a; }
-.tag-filter-chip-val { color: #d6e3ef; }
+.tag-filter-chip-val { color: #d6e3ef; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-filter-chip-conjunction {
+  font-size: 9px;
+  font-weight: 600;
+  color: #5a7a8a;
+  padding: 0 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 .tag-filter-chip-remove {
   font: inherit;
   font-size: 12px;

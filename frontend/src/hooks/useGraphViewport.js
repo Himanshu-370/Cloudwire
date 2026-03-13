@@ -61,7 +61,12 @@ export function useGraphViewport() {
 
     const graphWidth = Math.max(1, maxX - minX);
     const graphHeight = Math.max(1, maxY - minY);
-    const scale = clamp(Math.min(width / (graphWidth + 180), height / (graphHeight + 180)), 0.18, 1.45);
+    const fitScale = Math.min(width / (graphWidth + 180), height / (graphHeight + 180));
+
+    // If everything fits at readable size (>=0.55), use fit-to-graph.
+    // Otherwise, center on the graph at a readable scale so nodes aren't tiny.
+    const MIN_READABLE_SCALE = 0.55;
+    const scale = clamp(Math.max(fitScale, MIN_READABLE_SCALE), 0.18, 1.45);
     const centeredX = width / 2 - ((minX + maxX) / 2) * scale;
     const centeredY = height / 2 - ((minY + maxY) / 2) * scale;
 

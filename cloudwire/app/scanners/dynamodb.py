@@ -26,8 +26,10 @@ class DynamoDBScannerMixin:
         if not self.options.include_resource_describes:
             for name in table_names:
                 self._ensure_not_cancelled()
+                # Construct real ARN for tag filter matching
+                table_arn = f"arn:aws:dynamodb:{self._region}:{self._account_id}:table/{name}"
                 node_id = self._make_node_id("dynamodb", name)
-                self._node(node_id, label=name, service="dynamodb", type="table", arn=name)
+                self._node(node_id, label=name, service="dynamodb", type="table", arn=table_arn)
             return
 
         workers = max(1, min(self.options.dynamodb_describe_workers, len(table_names) or 1))

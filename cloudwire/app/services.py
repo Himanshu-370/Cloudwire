@@ -14,6 +14,7 @@ SERVICE_ALIASES: Dict[str, str] = {
     "elasticloadbalancing": "elb",
     "states": "stepfunctions",
     "monitoring": "cloudwatch",
+    "logs": "cloudwatch",
     "es": "opensearch",
     "aoss": "opensearch",
     "elasticfilesystem": "efs",
@@ -27,6 +28,9 @@ SERVICE_ALIASES: Dict[str, str] = {
     "elastic-beanstalk": "elasticbeanstalk",
     "certificate-manager": "acm",
     "amazonmq": "mq",
+    "firehose": "firehose",
+    "codepipeline": "codepipeline",
+    "codebuild": "codebuild",
 }
 
 
@@ -47,33 +51,56 @@ SERVICE_REGISTRY: Dict[str, dict] = {
     # API & Integration
     "apigateway":    {"label": "API Gateway",      "group": "API & Integration",    "default": True},
     "eventbridge":   {"label": "EventBridge",       "group": "API & Integration",    "default": True},
+    "appsync":       {"label": "AppSync",           "group": "API & Integration",    "default": False},
+    "mq":            {"label": "Amazon MQ",         "group": "API & Integration",    "default": False},
     # Compute
     "lambda":        {"label": "Lambda",            "group": "Compute",              "default": True},
     "ec2":           {"label": "EC2",               "group": "Compute",              "default": False},
     "ecs":           {"label": "ECS",               "group": "Compute",              "default": False},
+    "eks":           {"label": "EKS",               "group": "Compute",              "default": False},
     "stepfunctions": {"label": "Step Functions",    "group": "Compute",              "default": False},
     "glue":          {"label": "Glue",              "group": "Compute",              "default": False},
+    "emr":           {"label": "EMR",               "group": "Compute",              "default": False},
+    "elasticbeanstalk": {"label": "Elastic Beanstalk", "group": "Compute",           "default": False},
+    "batch":         {"label": "Batch",             "group": "Compute",              "default": False},
     # Queues & Streams
     "sqs":           {"label": "SQS",               "group": "Queues & Streams",     "default": True},
     "sns":           {"label": "SNS",               "group": "Queues & Streams",     "default": False},
     "kinesis":       {"label": "Kinesis",           "group": "Queues & Streams",     "default": False},
+    "kafka":         {"label": "MSK",               "group": "Queues & Streams",     "default": False},
+    "firehose":      {"label": "Kinesis Firehose",  "group": "Queues & Streams",     "default": False},
     # Database & Storage
     "dynamodb":      {"label": "DynamoDB",          "group": "Database & Storage",   "default": True},
     "s3":            {"label": "S3",                "group": "Database & Storage",    "default": False},
     "rds":           {"label": "RDS",               "group": "Database & Storage",    "default": False},
     "elasticache":   {"label": "ElastiCache",       "group": "Database & Storage",    "default": False},
     "redshift":      {"label": "Redshift",          "group": "Database & Storage",    "default": False},
+    "opensearch":    {"label": "OpenSearch",        "group": "Database & Storage",    "default": False},
+    "efs":           {"label": "EFS",               "group": "Database & Storage",    "default": False},
+    "ecr":           {"label": "ECR",               "group": "Database & Storage",    "default": False},
     # Networking
     "vpc":           {"label": "VPC Network",       "group": "Networking",           "default": True},
     "cloudfront":    {"label": "CloudFront",        "group": "Networking",           "default": False},
     "route53":       {"label": "Route 53",          "group": "Networking",           "default": False},
     "elb":           {"label": "ELB",               "group": "Networking",           "default": False},
-    "appsync":       {"label": "AppSync",           "group": "Networking",           "default": False},
+    "acm":           {"label": "ACM",               "group": "Networking",           "default": False},
     # Security & Identity
     "iam":           {"label": "IAM",               "group": "Security & Identity",  "default": False},
     "cognito":       {"label": "Cognito",           "group": "Security & Identity",  "default": False},
     "secretsmanager": {"label": "Secrets Manager",  "group": "Security & Identity",  "default": False},
     "kms":           {"label": "KMS",               "group": "Security & Identity",  "default": False},
+    "wafv2":         {"label": "WAF",               "group": "Security & Identity",  "default": False},
+    "guardduty":     {"label": "GuardDuty",         "group": "Security & Identity",  "default": False},
+    # Monitoring & Management
+    "cloudwatch":    {"label": "CloudWatch",        "group": "Monitoring & Mgmt",    "default": False},
+    "cloudtrail":    {"label": "CloudTrail",        "group": "Monitoring & Mgmt",    "default": False},
+    "cloudformation": {"label": "CloudFormation",   "group": "Monitoring & Mgmt",    "default": False},
+    # Analytics & ML
+    "athena":        {"label": "Athena",            "group": "Analytics & ML",       "default": False},
+    "sagemaker":     {"label": "SageMaker",         "group": "Analytics & ML",       "default": False},
+    # Developer Tools
+    "codepipeline":  {"label": "CodePipeline",      "group": "Developer Tools",      "default": False},
+    "codebuild":     {"label": "CodeBuild",         "group": "Developer Tools",      "default": False},
 }
 
 # Derived helpers --------------------------------------------------------
@@ -88,6 +115,9 @@ _GROUP_ORDER = [
     "Database & Storage",
     "Networking",
     "Security & Identity",
+    "Monitoring & Mgmt",
+    "Analytics & ML",
+    "Developer Tools",
 ]
 
 

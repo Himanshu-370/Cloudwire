@@ -262,8 +262,13 @@ export default function CloudWirePage() {
     [visibleNodes, visibleEdges]
   );
 
+  const scanCompleteCount = useRef(0);
+  useEffect(() => {
+    if (!scanLoading && graphNodes.length > 0) scanCompleteCount.current += 1;
+  }, [scanLoading, graphNodes.length]);
+
   const fitKey = useMemo(
-    () => `${region}|${graphNodes.length}|${graphEdges.length}|${graphNodes[0]?.id || ""}|${graphNodes[graphNodes.length - 1]?.id || ""}`,
+    () => `${region}|${graphNodes.length}|${graphEdges.length}|${graphNodes[0]?.id || ""}|${graphNodes[graphNodes.length - 1]?.id || ""}|${scanCompleteCount.current}`,
     [region, graphNodes, graphEdges]
   );
 
@@ -412,11 +417,27 @@ export default function CloudWirePage() {
             <div className="graph-stage-loading">Connecting to backend...</div>
           )}
 
+          {(scanLoading || tagScanLoading) && (
+            <div className="graph-scan-loading-overlay">
+              <div className="graph-scan-loading-spinner" />
+              <span className="graph-scan-loading-label">
+                {tagScanLoading ? "Discovering resources..." : jobStatus?.current_service ? `Scanning ${jobStatus.current_service}...` : "Scanning..."}
+              </span>
+              {jobStatus?.progress_percent > 0 && (
+                <div className="graph-scan-loading-progress">
+                  <div className="graph-scan-loading-progress-fill" style={{ width: `${jobStatus.progress_percent}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
           {!bootstrapLoading && !scanLoading && graphNodes.length === 0 && visibleNodes.length === 0 && jobStatus?.status === "completed" && (
             <div className="graph-empty-state">
               <div className="graph-empty-title">No resources found</div>
               <div className="graph-empty-hint">
-                {selectedServices.length === 0
+                {scanFilterMode === "tags"
+                  ? "No resources matched the selected tags in this region. Try different tag filters or check that your resources are tagged."
+                  : selectedServices.length === 0
                   ? "Select at least one service and run a scan."
                   : "The selected services returned no resources in this region. Try a different region or check your AWS credentials."}
               </div>

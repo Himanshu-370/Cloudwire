@@ -11,6 +11,8 @@ const FALLBACK_SERVICE_GROUPS = [
     services: [
       { value: "apigateway", label: "API Gateway" },
       { value: "eventbridge", label: "EventBridge" },
+      { value: "appsync", label: "AppSync" },
+      { value: "mq", label: "Amazon MQ" },
     ],
   },
   {
@@ -19,8 +21,12 @@ const FALLBACK_SERVICE_GROUPS = [
       { value: "lambda", label: "Lambda" },
       { value: "ec2", label: "EC2" },
       { value: "ecs", label: "ECS" },
+      { value: "eks", label: "EKS" },
       { value: "stepfunctions", label: "Step Functions" },
       { value: "glue", label: "Glue" },
+      { value: "emr", label: "EMR" },
+      { value: "elasticbeanstalk", label: "Elastic Beanstalk" },
+      { value: "batch", label: "Batch" },
     ],
   },
   {
@@ -29,6 +35,8 @@ const FALLBACK_SERVICE_GROUPS = [
       { value: "sqs", label: "SQS" },
       { value: "sns", label: "SNS" },
       { value: "kinesis", label: "Kinesis" },
+      { value: "kafka", label: "MSK" },
+      { value: "firehose", label: "Kinesis Firehose" },
     ],
   },
   {
@@ -39,6 +47,9 @@ const FALLBACK_SERVICE_GROUPS = [
       { value: "rds", label: "RDS" },
       { value: "elasticache", label: "ElastiCache" },
       { value: "redshift", label: "Redshift" },
+      { value: "opensearch", label: "OpenSearch" },
+      { value: "efs", label: "EFS" },
+      { value: "ecr", label: "ECR" },
     ],
   },
   {
@@ -48,7 +59,7 @@ const FALLBACK_SERVICE_GROUPS = [
       { value: "cloudfront", label: "CloudFront" },
       { value: "route53", label: "Route 53" },
       { value: "elb", label: "ELB" },
-      { value: "appsync", label: "AppSync" },
+      { value: "acm", label: "ACM" },
     ],
   },
   {
@@ -58,6 +69,30 @@ const FALLBACK_SERVICE_GROUPS = [
       { value: "cognito", label: "Cognito" },
       { value: "secretsmanager", label: "Secrets Manager" },
       { value: "kms", label: "KMS" },
+      { value: "wafv2", label: "WAF" },
+      { value: "guardduty", label: "GuardDuty" },
+    ],
+  },
+  {
+    label: "Monitoring & Mgmt",
+    services: [
+      { value: "cloudwatch", label: "CloudWatch" },
+      { value: "cloudtrail", label: "CloudTrail" },
+      { value: "cloudformation", label: "CloudFormation" },
+    ],
+  },
+  {
+    label: "Analytics & ML",
+    services: [
+      { value: "athena", label: "Athena" },
+      { value: "sagemaker", label: "SageMaker" },
+    ],
+  },
+  {
+    label: "Developer Tools",
+    services: [
+      { value: "codepipeline", label: "CodePipeline" },
+      { value: "codebuild", label: "CodeBuild" },
     ],
   },
 ];
@@ -282,15 +317,14 @@ export function TopBar({
 
         {/* SERVICES mode controls */}
         {scanFilterMode !== "tags" && (
-          <>
-            <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} serviceGroups={serviceGroups} allServices={allServices} />
-
-            <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
-              <option value="quick">Quick</option>
-              <option value="deep">Deep</option>
-            </select>
-          </>
+          <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} serviceGroups={serviceGroups} allServices={allServices} />
         )}
+
+        {/* Scan depth selector — visible in both modes */}
+        <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
+          <option value="quick">Quick</option>
+          <option value="deep">Deep</option>
+        </select>
 
         {/* TAGS mode controls */}
         {scanFilterMode === "tags" && tagDiscovery && (
@@ -300,10 +334,11 @@ export function TopBar({
             tagKeysError={tagDiscovery.tagKeysError}
             selectedTagKeys={tagDiscovery.selectedTagKeys}
             onToggleTagKey={tagDiscovery.toggleTagKey}
-            tagValues={tagDiscovery.tagValues}
-            tagValuesLoading={tagDiscovery.tagValuesLoading}
-            selectedTagValues={tagDiscovery.selectedTagValues}
+            tagValuesByKey={tagDiscovery.tagValuesByKey}
+            valuesLoadingKeys={tagDiscovery.valuesLoadingKeys}
+            selectedValuesByKey={tagDiscovery.selectedValuesByKey}
             onToggleTagValue={tagDiscovery.toggleTagValue}
+            hasSelectedValues={tagDiscovery.hasSelectedValues}
             onApplyTagFilter={tagDiscovery.addTagFilter}
             activeTagFilters={tagDiscovery.activeTagFilters}
             onRemoveTagFilter={tagDiscovery.removeTagFilter}
@@ -339,13 +374,22 @@ export function TopBar({
             {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
           </button>
         ) : scanFilterMode === "tags" ? (
-          <button
-            className="topbar-primary-btn topbar-primary-btn--tags"
-            onClick={onScanByTags}
-            disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
-          >
-            {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
-          </button>
+          <>
+            {tagDiscovery?.discoveredServices?.length > 0 && !tagScanLoading && (
+              <span className="topbar-discovered-hint" title={tagDiscovery.discoveredServices.join(", ")}>
+                {tagDiscovery.discoveredServices.length} services found
+              </span>
+            )}
+            <button
+              className="topbar-primary-btn topbar-primary-btn--tags"
+              onClick={onScanByTags}
+              disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
+            >
+              {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
+            </button>
+          </>
+        ) : tagScanLoading ? (
+          <button className="topbar-primary-btn" disabled>DISCOVERING...</button>
         ) : (
           <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>
             SCAN AWS

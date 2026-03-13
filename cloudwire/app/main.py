@@ -298,14 +298,21 @@ def _services_from_tag_arns(tag_arns: List[str]) -> List[str]:
     return result
 
 
-def _seed_missing_tag_arns(graph_store: "GraphStore", tag_arns: List[str], region: str) -> int:
+def _seed_missing_tag_arns(
+    graph_store: "GraphStore",
+    tag_arns: List[str],
+    region: str,
+) -> int:
     """Ensure every tag-discovered ARN has a node in the graph.
 
     Services without a dedicated scanner rely on the generic tagging-API
     fallback, which may fail for certain service prefixes.  This function
     creates lightweight stub nodes for any ARNs that scanners didn't cover,
     so they survive the subsequent ``filter_by_arns`` pass and remain
-    visible in the graph.
+    visible in the graph.  Stub nodes are marked with ``stub=True``.
+
+    If *tag_filters* is provided, fetches tags from the tagging API so
+    stub nodes carry the tags the user searched for.
 
     Returns the number of newly seeded nodes.
     """
@@ -318,11 +325,34 @@ def _seed_missing_tag_arns(graph_store: "GraphStore", tag_arns: List[str], regio
             if val:
                 existing_arns.add(val)
 
-    seeded = 0
-    for arn in tag_arns:
-        if arn in existing_arns:
-            continue
+    missing_arns = [arn for arn in tag_arns if arn not in existing_arns]
+    if not missing_arns:
+        return 0
 
+    # Best-effort: fetch tags for the missing ARNs from the tagging API
+    # Use the ResourceARNList parameter to fetch tags for specific ARNs
+    arn_tags: Dict[str, Dict[str, str]] = {}
+    try:
+        client = _tagging_client(region)
+        paginator = client.get_paginator("get_resources")
+        # Fetch in batches of 100 (API limit for ResourceARNList)
+        for i in range(0, len(missing_arns), 100):
+            batch = missing_arns[i:i + 100]
+            for page in paginator.paginate(
+                ResourceARNList=batch,
+                ResourcesPerPage=100,
+            ):
+                for entry in page.get("ResourceTagMappingList", []):
+                    entry_arn = entry.get("ResourceARN", "")
+                    arn_tags[entry_arn] = {
+                        t["Key"]: t["Value"]
+                        for t in entry.get("Tags", [])
+                    }
+    except Exception as exc:
+        logger.debug("Tag fetch for seed nodes failed: %s", exc)
+
+    seeded = 0
+    for arn in missing_arns:
         raw_service = _service_from_arn(arn)
         service = normalize_service_name(raw_service) if raw_service else "unknown"
         node_id = f"{service}:{arn}"
@@ -338,14 +368,19 @@ def _seed_missing_tag_arns(graph_store: "GraphStore", tag_arns: List[str], regio
         elif ":" in resource_part:
             resource_type = resource_part.split(":")[0]
 
-        graph_store.add_node(
-            node_id,
-            arn=arn,
-            label=label,
-            service=service,
-            type=resource_type or "resource",
-            region=region,
-        )
+        node_attrs: Dict[str, Any] = {
+            "arn": arn,
+            "label": label,
+            "service": service,
+            "type": resource_type or "resource",
+            "region": region,
+            "stub": True,
+        }
+        tags = arn_tags.get(arn)
+        if tags:
+            node_attrs["tags"] = tags
+
+        graph_store.add_node(node_id, **node_attrs)
         seeded += 1
     return seeded
 
@@ -367,6 +402,7 @@ def _run_scan_job(
 
     # Auto-include all services referenced in tag ARNs so no tagged resources
     # are silently dropped when the frontend doesn't include them.
+    services = list(services)  # work on a local copy to avoid mutating the caller's list
     if tag_arns:
         arn_services = _services_from_tag_arns(tag_arns)
         existing = set(services)
@@ -374,6 +410,8 @@ def _run_scan_job(
             if svc not in existing:
                 services.append(svc)
                 existing.add(svc)
+        # Update services_total on the job so the progress bar is accurate
+        job.services_total = len(services)
 
     scanner = AWSGraphScanner(job.graph_store, options=options)
 
@@ -406,9 +444,12 @@ def _run_scan_job(
                 logger.info("Seeded %d tag-discovered resource(s) not found by scanners", seeded)
 
             allowed = set(tag_arns)
-            removed = job.graph_store.filter_by_arns(allowed)
-            if removed:
-                job.graph_store.add_warning(f"Tag filter removed {removed} resource(s) not matching selected tags or their neighbors.")
+            stats = job.graph_store.filter_by_arns(allowed)
+            if stats["removed"]:
+                job.graph_store.add_warning(
+                    f"Tag filter: kept {stats['seeds']} matched + {stats['neighbors']} connected, "
+                    f"removed {stats['removed']} unrelated (from {stats['total']} total scanned)."
+                )
         job_store.mark_completed(job_id, ttl_seconds=_cache_ttl_seconds(options.mode))
     except ScanCancelledError:
         job.graph_store.add_warning("Scan cancelled by user request.")
@@ -645,7 +686,7 @@ def get_tag_keys(region: str = Query(default="us-east-1")) -> Dict[str, Any]:
         client = _tagging_client(region)
         keys = []
         paginator = client.get_paginator("get_tag_keys")
-        for page in paginator.paginate():
+        for page in paginator.paginate(PaginationConfig={"MaxItems": 5000}):
             keys.extend(page.get("TagKeys", []))
         return {"keys": sorted(set(keys))}
     except Exception as exc:
@@ -666,7 +707,7 @@ def get_tag_values(
         client = _tagging_client(region)
         values = []
         paginator = client.get_paginator("get_tag_values")
-        for page in paginator.paginate(Key=key):
+        for page in paginator.paginate(Key=key, PaginationConfig={"MaxItems": 5000}):
             values.extend(page.get("TagValues", []))
         return {"key": key, "values": sorted(set(values))}
     except Exception as exc:
@@ -715,24 +756,52 @@ def get_tag_resources(
                     if not isinstance(v, str) or len(v) > _MAX_TAG_VALUE_LEN:
                         raise ValueError(f"tag_filters[{i}].Values[{j}] must be a string of at most {_MAX_TAG_VALUE_LEN} characters")
     except (ValueError, _json.JSONDecodeError) as exc:
+        logger.debug("tag_filters validation failed: %s", exc)
         raise APIError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="validation_error",
-            message=f"Invalid tag_filters JSON: {exc}",
+            message="tag_filters parameter is malformed or contains invalid values.",
         ) from exc
 
     try:
         client = _tagging_client(region)
-        arns = []
+        arns_set: set = set()
+        arns: list = []
         paginator = client.get_paginator("get_resources")
+        _MAX_DISCOVERED_RESOURCES = 5000
         for page in paginator.paginate(
             TagFilters=parsed_filters,
             ResourcesPerPage=100,
+            PaginationConfig={"MaxItems": _MAX_DISCOVERED_RESOURCES},
         ):
             for entry in page.get("ResourceTagMappingList", []):
                 arn = entry.get("ResourceARN")
-                if arn:
+                if arn and arn not in arns_set:
+                    arns_set.add(arn)
                     arns.append(arn)
+
+        # Global services (CloudFront, Route53, IAM) store tags in us-east-1.
+        # Query us-east-1 as well when the selected region is different.
+        if region != "us-east-1":
+            try:
+                global_client = _tagging_client("us-east-1")
+                global_paginator = global_client.get_paginator("get_resources")
+                for page in global_paginator.paginate(
+                    TagFilters=parsed_filters,
+                    ResourcesPerPage=100,
+                    PaginationConfig={"MaxItems": _MAX_DISCOVERED_RESOURCES},
+                ):
+                    for entry in page.get("ResourceTagMappingList", []):
+                        arn = entry.get("ResourceARN")
+                        if arn and arn not in arns_set:
+                            # Only include global services, not regional us-east-1 resources
+                            raw_svc = _service_from_arn(arn)
+                            svc = normalize_service_name(raw_svc) if raw_svc else ""
+                            if svc in ("cloudfront", "route53", "iam", "wafv2", "organizations"):
+                                arns_set.add(arn)
+                                arns.append(arn)
+            except Exception as exc:
+                logger.debug("Global service tag discovery from us-east-1 failed: %s", exc)
 
         services = sorted(s for s in set(normalize_service_name(_service_from_arn(arn)) for arn in arns) if s)
         return {"arns": arns, "services": services}

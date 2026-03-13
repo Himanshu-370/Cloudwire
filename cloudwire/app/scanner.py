@@ -615,7 +615,7 @@ class AWSGraphScanner(
     _TAGGING_API_SERVICE_MAP: Dict[str, str] = {
         "emr": "elasticmapreduce",
         "stepfunctions": "states",
-        "opensearch": "es",
+        "opensearch": "es",                    # tagging API still uses old "es" prefix
         "elb": "elasticloadbalancing",
         "cognito": "cognito-idp",
         "secretsmanager": "secretsmanager",
@@ -624,6 +624,11 @@ class AWSGraphScanner(
         "elasticbeanstalk": "elasticbeanstalk",
         "acm": "acm",
         "mq": "amazonmq",
+        "kafka": "kafka",                      # MSK uses "kafka" in tagging API
+        "wafv2": "wafv2",
+        "guardduty": "guardduty",
+        "codepipeline": "codepipeline",
+        "codebuild": "codebuild",
     }
 
     def _scan_generic_service(self, session: boto3.session.Session, service_name: str) -> None:
@@ -695,4 +700,4 @@ class AWSGraphScanner(
         if discovered == 0:
             self.store.add_warning(f"{service_name}: no resources discovered via tagging API.")
         else:
-            self.store.add_warning(f"{service_name}: discovered {discovered} resource(s) via tagging API (generic scan — limited relationship inference).")
+            logger.info("%s: discovered %d resource(s) via tagging API (generic scan)", service_name, discovered)

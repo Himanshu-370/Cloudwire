@@ -14,7 +14,7 @@ ScanMode = Literal["quick", "deep"]
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 
-_ARN_RE = re.compile(r"^arn:aws[a-z\-]*:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:.{1,512}$")
+_ARN_RE = re.compile(r"^arn:aws[a-z\-]*:[a-z0-9\-]+:[a-z0-9\-]*:(\d{12}|):.{0,1024}$")
 
 
 class ScanRequest(BaseModel):

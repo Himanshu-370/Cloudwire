@@ -34,12 +34,14 @@ class ApiGatewayScannerMixin:
                 self._ensure_not_cancelled()
                 api_id = api["ApiId"]
                 api_name = api.get("Name") or api_id
+                api_arn = f"arn:aws:apigateway:{self._region}::/apis/{api_id}"
                 node_id = self._make_node_id("apigateway", api_id)
                 self._node(
                     node_id,
                     label=api_name,
                     service="apigateway",
                     type="api",
+                    arn=api_arn,
                     api_protocol=api.get("ProtocolType"),
                     api_endpoint=api.get("ApiEndpoint"),
                 )
@@ -156,12 +158,14 @@ class ApiGatewayScannerMixin:
             for api in page.get("items", []):
                 self._ensure_not_cancelled()
                 rest_api_id = api["id"]
+                rest_api_arn = f"arn:aws:apigateway:{self._region}::/restapis/{rest_api_id}"
                 api_node = self._make_node_id("apigateway", rest_api_id)
                 self._node(
                     api_node,
                     label=api.get("name") or rest_api_id,
                     service="apigateway",
                     type="api",
+                    arn=rest_api_arn,
                     endpoint_configuration=api.get("endpointConfiguration", {}),
                 )
 
