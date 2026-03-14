@@ -72,6 +72,10 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   const prevLayoutRef = useRef(null);
 
   useEffect(() => {
+    if (nodes.length === 0) {
+      prevLayoutRef.current = null;
+      return;
+    }
     // Detect if the upstream layout changed positions (not just node list).
     // If any existing node moved, this is a layout switch — reset all positions.
     const layoutChanged = nodes.some((node) => {
@@ -86,12 +90,19 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         nodes.forEach((node) => { next[node.id] = node.position; });
         return next;
       }
-      // Normal update: preserve drag positions for existing nodes
+      // Normal update: preserve drag positions for existing nodes.
+      // Return previous if nothing changed to avoid infinite re-render.
+      let changed = Object.keys(previous).length !== nodes.length;
       const next = {};
       nodes.forEach((node) => {
-        next[node.id] = previous[node.id] || node.position;
+        if (previous[node.id]) {
+          next[node.id] = previous[node.id]; // keep existing (possibly dragged) position
+        } else {
+          next[node.id] = node.position;     // new node
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : previous;
     });
 
     // Store current layout positions for next comparison

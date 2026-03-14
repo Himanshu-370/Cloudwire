@@ -252,6 +252,11 @@ export function TopBar({
   tagDiscovery,
   onScanByTags,
   tagScanLoading,
+  // Terraform props
+  onOpenTerraformFilePanel,
+  terraformLoaded,
+  terraformResourceCount,
+  terraformFileCount,
 }) {
   const serviceGroups = useServiceGroups();
   const allServices = useAllServices(serviceGroups);
@@ -291,6 +296,13 @@ export function TopBar({
               >
                 TAGS
               </button>
+              <button
+                className={`topbar-view-btn ${scanFilterMode === "terraform" ? "active" : ""}`}
+                onClick={() => onScanFilterModeChange("terraform")}
+                title="Upload Terraform .tfstate files to visualize infrastructure"
+              >
+                TERRAFORM
+              </button>
             </div>
           </>
         )}
@@ -308,23 +320,46 @@ export function TopBar({
 
         {!scanLoading && jobStatus?.status === "completed" && (
           <span className="topbar-done">
-            SCAN COMPLETE {jobStatus?.node_count ? `· ${jobStatus.node_count} RESOURCES` : ""}
+            {jobStatus?.region === "terraform" ? "TERRAFORM LOADED" : "SCAN COMPLETE"} {jobStatus?.node_count ? `· ${jobStatus.node_count} RESOURCES` : ""}
             {warnings?.length > 0 && (
               <span className="topbar-warn-count"> · {warnings.length} warnings</span>
             )}
           </span>
         )}
 
+        {/* TERRAFORM mode controls — only show after files exist */}
+        {scanFilterMode === "terraform" && terraformFileCount > 0 && (
+          <>
+            {terraformLoaded && (
+              <span className="topbar-tf-chip" title={`${terraformFileCount} file(s), ${terraformResourceCount} resources`}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <rect x="1" y="1" width="10" height="10" rx="2" stroke="currentColor" strokeWidth="1" />
+                  <path d="M4 4h4M4 6h4M4 8h2" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" />
+                </svg>
+                {terraformFileCount} file{terraformFileCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            <button
+              className="topbar-primary-btn topbar-primary-btn--terraform"
+              onClick={onOpenTerraformFilePanel}
+            >
+              LOAD FILES
+            </button>
+          </>
+        )}
+
         {/* SERVICES mode controls */}
-        {scanFilterMode !== "tags" && (
+        {scanFilterMode === "services" && (
           <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} serviceGroups={serviceGroups} allServices={allServices} />
         )}
 
-        {/* Scan depth selector — visible in both modes */}
-        <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
-          <option value="quick">Quick</option>
-          <option value="deep">Deep</option>
-        </select>
+        {/* Scan depth selector — visible in services and tags modes */}
+        {scanFilterMode !== "terraform" && (
+          <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
+            <option value="quick">Quick</option>
+            <option value="deep">Deep</option>
+          </select>
+        )}
 
         {/* TAGS mode controls */}
         {scanFilterMode === "tags" && tagDiscovery && (
@@ -347,53 +382,62 @@ export function TopBar({
           />
         )}
 
-        <select className="topbar-compact-select topbar-region-select" value={region} onChange={(event) => onRegionChange(event.target.value)}>
-          {AWS_REGIONS.map((awsRegion) => (
-            <option key={awsRegion.value} value={awsRegion.value}>
-              {awsRegion.value}
-            </option>
-          ))}
-        </select>
-
-        <label className="topbar-force-refresh-label" title="Bypass cache and re-scan all resources">
-          <input
-            type="checkbox"
-            checked={forceRefresh}
-            onChange={(e) => onForceRefreshChange(e.target.checked)}
-          />
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 2L10 5H7M2 10L2 7H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 4.5A4 4 0 0 1 9.5 3.5M9.5 7.5A4 4 0 0 1 2.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
-        </label>
-
-        {/* Action buttons */}
-        {scanLoading ? (
-          <button
-            className="topbar-secondary-btn"
-            onClick={onStopScan}
-            disabled={!jobStatus || Boolean(jobStatus?.cancellation_requested)}
-          >
-            {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
-          </button>
-        ) : scanFilterMode === "tags" ? (
+        {/* Region + refresh — hidden in terraform mode */}
+        {scanFilterMode !== "terraform" && (
           <>
-            {tagDiscovery?.discoveredServices?.length > 0 && !tagScanLoading && (
-              <span className="topbar-discovered-hint" title={tagDiscovery.discoveredServices.join(", ")}>
-                {tagDiscovery.discoveredServices.length} services found
-              </span>
-            )}
-            <button
-              className="topbar-primary-btn topbar-primary-btn--tags"
-              onClick={onScanByTags}
-              disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
-            >
-              {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
-            </button>
+            <select className="topbar-compact-select topbar-region-select" value={region} onChange={(event) => onRegionChange(event.target.value)}>
+              {AWS_REGIONS.map((awsRegion) => (
+                <option key={awsRegion.value} value={awsRegion.value}>
+                  {awsRegion.value}
+                </option>
+              ))}
+            </select>
+
+            <label className="topbar-force-refresh-label" title="Bypass cache and re-scan all resources">
+              <input
+                type="checkbox"
+                checked={forceRefresh}
+                onChange={(e) => onForceRefreshChange(e.target.checked)}
+              />
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 2L10 5H7M2 10L2 7H5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/><path d="M2.5 4.5A4 4 0 0 1 9.5 3.5M9.5 7.5A4 4 0 0 1 2.5 8.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+            </label>
           </>
-        ) : tagScanLoading ? (
-          <button className="topbar-primary-btn" disabled>DISCOVERING...</button>
-        ) : (
-          <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>
-            SCAN AWS
-          </button>
+        )}
+
+        {/* Action buttons — hidden in terraform mode */}
+        {scanFilterMode !== "terraform" && (
+          <>
+            {scanLoading ? (
+              <button
+                className="topbar-secondary-btn"
+                onClick={onStopScan}
+                disabled={!jobStatus || Boolean(jobStatus?.cancellation_requested)}
+              >
+                {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
+              </button>
+            ) : scanFilterMode === "tags" ? (
+              <>
+                {tagDiscovery?.discoveredServices?.length > 0 && !tagScanLoading && (
+                  <span className="topbar-discovered-hint" title={tagDiscovery.discoveredServices.join(", ")}>
+                    {tagDiscovery.discoveredServices.length} services found
+                  </span>
+                )}
+                <button
+                  className="topbar-primary-btn topbar-primary-btn--tags"
+                  onClick={onScanByTags}
+                  disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
+                >
+                  {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
+                </button>
+              </>
+            ) : tagScanLoading ? (
+              <button className="topbar-primary-btn" disabled>DISCOVERING...</button>
+            ) : (
+              <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>
+                SCAN AWS
+              </button>
+            )}
+          </>
         )}
       </div>
     </header>

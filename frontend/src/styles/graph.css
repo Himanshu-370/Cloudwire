@@ -2440,3 +2440,319 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Terraform file chip in topbar ────────────────────── */
+.topbar-tf-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #7b2d8b;
+  background: rgba(123, 45, 139, 0.1);
+  border: 1px solid rgba(123, 45, 139, 0.3);
+  padding: 3px 10px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.topbar-primary-btn--terraform {
+  background: linear-gradient(135deg, #7b2d8b, #5c3d99);
+  color: #fff;
+}
+
+.topbar-primary-btn--terraform:hover {
+  background: linear-gradient(135deg, #923da3, #7050b0);
+}
+
+/* ── Terraform DropZone (full canvas) ─────────────────── */
+.tf-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 13, 0.6);
+  transition: background 0.2s;
+}
+
+.tf-dropzone--active {
+  background: rgba(123, 45, 139, 0.12);
+}
+
+.tf-dropzone-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 60px;
+  border: 2px dashed #2a1a3a;
+  background: rgba(7, 13, 20, 0.95);
+  transition: border-color 0.2s;
+}
+
+.tf-dropzone--active .tf-dropzone-card {
+  border-color: #7b2d8b;
+}
+
+.tf-dropzone-icon {
+  color: #ff9900;
+}
+
+.tf-dropzone-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #d6e3ef;
+}
+
+.tf-dropzone-hint {
+  font-size: 12px;
+  color: #5a7a8a;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tf-dropzone-browse {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ff9900;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tf-dropzone-browse:hover {
+  color: #ffaa33;
+}
+
+.tf-dropzone-meta {
+  font-size: 10px;
+  color: #3a5a6a;
+  letter-spacing: 0.08em;
+}
+
+.tf-dropzone-input {
+  display: none;
+}
+
+.tf-dropzone-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #1a2a38;
+  border-top-color: #7b2d8b;
+  border-radius: 50%;
+  animation: layout-spin 0.75s linear infinite;
+}
+
+/* ── Terraform File Panel (dropdown below topbar) ─────── */
+.tf-panel {
+  position: absolute;
+  top: 52px;
+  right: 24px;
+  z-index: 200;
+  width: 340px;
+  background: #070d14;
+  border: 1px solid #1a2a38;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+}
+
+.tf-panel-header {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #7b2d8b;
+  padding: 10px 14px 6px;
+  border-bottom: 1px solid #0f1e2a;
+}
+
+.tf-panel-empty {
+  padding: 16px 14px;
+  font-size: 12px;
+  color: #3a5a6a;
+  text-align: center;
+}
+
+.tf-panel-list {
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #1a2a38 transparent;
+}
+
+.tf-panel-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #8ab4c8;
+  border-bottom: 1px solid #0a1520;
+}
+
+.tf-panel-file--error {
+  color: #ff6b6b;
+}
+
+.tf-panel-file-icon {
+  flex-shrink: 0;
+  color: #5a7a8a;
+}
+
+.tf-panel-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-panel-file-meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #3a5a6a;
+}
+
+.tf-panel-file-loading {
+  color: #7b2d8b;
+}
+
+.tf-panel-file-ready {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #3a8a5a;
+}
+
+.tf-panel-file-done {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #7b2d8b;
+}
+
+.tf-panel-file-error {
+  color: #ff6b6b;
+}
+
+.tf-panel-file-remove {
+  font: inherit;
+  font-size: 16px;
+  background: none;
+  border: none;
+  color: #3a5a6a;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.tf-panel-file-remove:hover {
+  color: #ff4444;
+}
+
+.tf-panel-file-remove:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tf-panel-drop {
+  padding: 10px 14px;
+  font-size: 11px;
+  color: #5a7a8a;
+  border: 1px dashed #1a2a38;
+  margin: 8px 10px;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.tf-panel-drop--active {
+  border-color: #7b2d8b;
+  background: rgba(123, 45, 139, 0.08);
+}
+
+.tf-panel-browse {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ff9900;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.tf-panel-browse:hover {
+  color: #ffaa33;
+}
+
+.tf-panel-browse:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tf-panel-error {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: #ff6b6b;
+}
+
+.tf-panel-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #0f1e2a;
+}
+
+.tf-panel-clear {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  background: none;
+  border: 1px solid #1a2a38;
+  color: #5a7a8a;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.tf-panel-clear:hover {
+  border-color: #ff4444;
+  color: #ff6b6b;
+}
+
+.tf-panel-clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.tf-panel-parse {
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  background: linear-gradient(135deg, #7b2d8b, #5c3d99);
+  border: none;
+  color: #fff;
+  padding: 5px 16px;
+  cursor: pointer;
+  flex: 1;
+  transition: opacity 0.12s;
+}
+
+.tf-panel-parse:hover {
+  opacity: 0.9;
+}
+
+.tf-panel-parse:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

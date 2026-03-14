@@ -94,6 +94,21 @@ class ScanJobStore:
         for key in expired_keys:
             self._cache.pop(key, None)
 
+    def register_external_job(self, job: ScanJob, *, ttl_seconds: int = 1800) -> None:
+        """Register a pre-completed job built outside the normal scan pipeline (e.g. Terraform parse)."""
+        with self._lock:
+            self._jobs[job.id] = job
+            self._cache[job.cache_key] = CacheEntry(
+                job_id=job.id,
+                expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+            )
+            # Prune both expired cache entries and stale terminal jobs so that
+            # repeated Terraform parses do not accumulate orphaned cache keys or
+            # job objects between live-scan runs (which is the only other path
+            # that calls _prune_expired_cache_locked).
+            self._prune_expired_cache_locked()
+            self._prune_terminal_jobs_locked()
+
     def find_reusable_job(self, *, cache_key: str, force_refresh: bool) -> tuple[Optional[str], bool]:
         if force_refresh:
             return None, False

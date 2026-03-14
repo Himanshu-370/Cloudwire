@@ -270,6 +270,28 @@ export function useScanPolling() {
     return () => clearPolling();
   }, [clearPolling]);
 
+  // Inject a pre-built graph from an external source (e.g. Terraform parse).
+  // Atomically sets graphData, jobStatus, and currentJobId in one batch.
+  const injectGraph = useCallback((jobId, graphPayload, extraStatus = {}) => {
+    clearPolling();
+    setGraphData(normalizeGraph(graphPayload));
+    setCurrentJobId(jobId);
+    setScanLoading(false);
+    setError("");
+    setJobStatus({
+      job_id: jobId,
+      status: "completed",
+      mode: "quick",
+      region: "terraform",
+      services: [],
+      progress_percent: 100,
+      node_count: graphPayload?.metadata?.node_count ?? graphPayload?.nodes?.length ?? 0,
+      edge_count: graphPayload?.metadata?.edge_count ?? graphPayload?.edges?.length ?? 0,
+      warnings: graphPayload?.metadata?.warnings || [],
+      ...extraStatus,
+    });
+  }, [clearPolling]);
+
   return {
     graphData,
     jobStatus,
@@ -283,6 +305,7 @@ export function useScanPolling() {
     fetchGraph,
     fetchResource,
     clearPolling,
+    injectGraph,
   };
 }
 

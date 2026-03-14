@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 import boto3
 from botocore.config import Config
@@ -17,7 +19,7 @@ from botocore.exceptions import (
     PartialCredentialsError,
     ReadTimeoutError,
 )
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
+from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -36,9 +38,17 @@ from .models import (
     TagValuesResponse,
     normalize_service_name,
 )
-from .scan_jobs import ScanJobStore
+from .graph_store import GraphStore
+from .scan_jobs import ScanJob, ScanJobStore
 from .scanner import AWSGraphScanner, ScanCancelledError, ScanExecutionOptions
 from .services import get_services_payload
+from .terraform_parser import (
+    MAX_BYTES_PER_FILE as _TF_MAX_FILE_BYTES,
+    MAX_FILES as _TF_MAX_FILES,
+    MAX_TOTAL_BYTES as _TF_MAX_TOTAL_BYTES,
+    TerraformParser,
+    validate_tfstate_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -807,6 +817,161 @@ def get_tag_resources(
         return {"arns": arns, "services": services}
     except Exception as exc:
         _handle_tagging_error(exc, region, "get_resources")
+
+
+# ---------------------------------------------------------------------------
+# Terraform state file parsing
+# ---------------------------------------------------------------------------
+
+# Simple in-memory rate limiter for terraform parse endpoint.
+# Allows at most _TF_RATE_LIMIT requests per _TF_RATE_WINDOW seconds.
+import time as _time
+import threading as _threading
+
+_TF_ALLOWED_EXTENSIONS = {".tfstate", ".json", ".tf"}
+_TF_JOB_TTL_SECONDS = 1800
+_TF_RATE_LIMIT = 10
+_TF_RATE_WINDOW = 60  # seconds
+_tf_rate_lock = _threading.Lock()
+_tf_rate_timestamps: list = []
+
+
+def _tf_rate_check() -> None:
+    """Raise APIError(429) if the terraform parse rate limit is exceeded."""
+    now = _time.monotonic()
+    with _tf_rate_lock:
+        # Prune expired entries
+        cutoff = now - _TF_RATE_WINDOW
+        while _tf_rate_timestamps and _tf_rate_timestamps[0] < cutoff:
+            _tf_rate_timestamps.pop(0)
+        if len(_tf_rate_timestamps) >= _TF_RATE_LIMIT:
+            raise APIError(
+                status_code=429,
+                code="rate_limit_exceeded",
+                message=f"Too many terraform parse requests. Limit is {_TF_RATE_LIMIT} per {_TF_RATE_WINDOW}s.",
+            )
+        _tf_rate_timestamps.append(now)
+
+
+@api.post(
+    "/terraform/parse",
+    responses={400: {"model": APIErrorResponse}, 413: {"model": APIErrorResponse}, 429: {"model": APIErrorResponse}},
+)
+async def parse_terraform(
+    files: List[UploadFile] = File(..., description="One or more .tfstate files"),
+) -> Dict[str, Any]:
+    """Parse uploaded Terraform state files and return the graph."""
+    _tf_rate_check()
+    if len(files) > _TF_MAX_FILES:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="too_many_files",
+            message=f"Maximum {_TF_MAX_FILES} files allowed, got {len(files)}.",
+        )
+
+    # Read and validate all files.
+    # Extension check runs before read to fail fast on obviously wrong uploads.
+    # Per-file size is enforced inside validate_tfstate_content; the cumulative
+    # cap is enforced here to limit total in-process memory for all files combined.
+    state_dicts: List[Dict[str, Any]] = []
+    hcl_dicts: List[Dict[str, Any]] = []
+    filenames: List[str] = []
+    total_bytes = 0
+
+    for upload in files:
+        safe_name = Path(upload.filename or "unknown").name if upload.filename else "unknown"
+        # Enforce extension before reading the body — avoids allocating memory for
+        # obviously invalid uploads.
+        if not any(safe_name.lower().endswith(ext) for ext in _TF_ALLOWED_EXTENSIONS):
+            raise APIError(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="invalid_file_type",
+                message=f"File '{safe_name}' has an unsupported extension. Only .tf, .tfstate, and .json files are accepted.",
+            )
+
+        raw = await upload.read()
+        total_bytes += len(raw)
+        if total_bytes > _TF_MAX_TOTAL_BYTES:
+            raise APIError(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                code="upload_too_large",
+                message=f"Total upload size exceeds {_TF_MAX_TOTAL_BYTES // (1024 * 1024)} MB.",
+            )
+
+        try:
+            if safe_name.lower().endswith(".tf"):
+                from .hcl_parser import validate_hcl_content
+                data = validate_hcl_content(raw, safe_name)
+                hcl_dicts.append(data)
+            else:
+                data = validate_tfstate_content(raw, safe_name)
+                state_dicts.append(data)
+        except ValueError as exc:
+            raise APIError(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="invalid_file",
+                message=str(exc),
+            )
+        filenames.append(safe_name)
+
+    if not state_dicts and not hcl_dicts:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="no_files",
+            message="No valid Terraform files provided.",
+        )
+
+    # Parse into a unified graph — .tfstate first (has real ARNs), then .tf
+    graph_store = GraphStore()
+    all_warnings: List[str] = []
+
+    if state_dicts:
+        tf_parser = TerraformParser(graph_store)
+        tf_summary = tf_parser.parse(state_dicts)
+        all_warnings.extend(tf_summary["warnings"])
+
+    if hcl_dicts:
+        from .hcl_parser import HCLParser
+        hcl_parser = HCLParser(graph_store)
+        hcl_summary = hcl_parser.parse(hcl_dicts)
+        all_warnings.extend(hcl_summary["warnings"])
+
+    # Store as a synthetic completed job so fetchResource works.
+    # The job is NOT registered as _latest_graph_id — terraform-parsed graphs
+    # are session-local to this upload and must not overwrite the shared live
+    # scan graph visible to all callers of GET /api/graph.
+    # A short TTL (30 min) ensures in-memory cleanup via the normal prune path.
+    job_id = str(uuid4())
+    job = ScanJob(
+        id=job_id,
+        cache_key=f"terraform:{job_id}",
+        account_id="terraform",
+        region="terraform",
+        services=[],
+        mode="quick",
+        include_iam_inference=False,
+        include_resource_describes=False,
+        status="completed",
+        progress_percent=100,
+        services_total=0,
+        services_done=0,
+        finished_at=datetime.now(timezone.utc).isoformat(),
+        graph_store=graph_store,
+    )
+
+    job_store.register_external_job(job, ttl_seconds=_TF_JOB_TTL_SECONDS)
+
+    graph_payload = graph_store.get_graph_payload()
+    metadata = graph_payload.get("metadata", {})
+    return {
+        "job_id": job_id,
+        "graph": graph_payload,
+        "resource_count": metadata.get("node_count", 0),
+        "edge_count": metadata.get("edge_count", 0),
+        "file_count": len(filenames),
+        "files": filenames,
+        "warnings": all_warnings,
+    }
 
 
 app.include_router(api)

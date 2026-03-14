@@ -10,6 +10,9 @@ import { useGraphPipeline } from "../hooks/useGraphPipeline";
 import { usePathFinder } from "../hooks/usePathFinder";
 import { useScanPolling, formatJobStatusLabel } from "../hooks/useScanPolling";
 import { useTagDiscovery } from "../hooks/useTagDiscovery";
+import { useTerraformUpload } from "../hooks/useTerraformUpload";
+import { TerraformDropZone } from "../components/layout/TerraformDropZone";
+import { TerraformFilePanel } from "../components/layout/TerraformFilePanel";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import {
   computeBlastRadius,
@@ -50,6 +53,7 @@ export default function CloudWirePage() {
     runScan,
     stopScan,
     fetchResource,
+    injectGraph,
   } = useScanPolling();
 
   const [selectedNodeId, setSelectedNodeId] = useState(null);
@@ -73,12 +77,14 @@ export default function CloudWirePage() {
   const [blastRadiusMode, setBlastRadiusMode] = useState(false);
   const [showFlowAnimation, setShowFlowAnimation] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
-  const [scanFilterMode, setScanFilterMode] = useState("services"); // "services" | "tags"
+  const [scanFilterMode, setScanFilterMode] = useState("services"); // "services" | "tags" | "terraform"
+  const [showTerraformFilePanel, setShowTerraformFilePanel] = useState(false);
   const [tagScanLoading, setTagScanLoading] = useState(false);
   const [collapsedContainers, setCollapsedContainers] = useState(new Set());
   const [hoveredExposedPath, setHoveredExposedPath] = useState(null);
 
   const tagDiscovery = useTagDiscovery(region, scanFilterMode === "tags");
+  const terraform = useTerraformUpload();
 
   // --- Data pipeline ---
   const {
@@ -95,13 +101,14 @@ export default function CloudWirePage() {
     graphData,
     region,
     hiddenServices,
-    showIsolated,
+    showIsolated: showIsolated || scanFilterMode === "terraform",
     collapsedServices,
     collapsedContainers,
     focusModeActive,
     selectedNodeId,
     focusDepth,
     layoutMode,
+    skipRegionFilter: scanFilterMode === "terraform",
   });
 
   // --- Path finder ---
@@ -273,8 +280,32 @@ export default function CloudWirePage() {
   );
 
   const handleScanFilterModeChange = useCallback((mode) => {
+    const prev = scanFilterMode;
     setScanFilterMode(mode);
-  }, []);
+    if (mode === "terraform" && !terraform.lastResult) {
+      setShowTerraformFilePanel(true);
+    }
+    // Clear terraform graph when switching away from terraform mode
+    if (prev === "terraform" && mode !== "terraform") {
+      injectGraph(`tf-switch-${Date.now()}`, { nodes: [], edges: [], metadata: {} });
+    }
+  }, [terraform.lastResult, scanFilterMode, injectGraph]);
+
+  const handleTerraformParsed = useCallback(async () => {
+    const result = await terraform.uploadAndParse();
+    if (!result) return;
+    hasAutoCollapsed.current = false;
+    injectGraph(result.job_id, result.graph, {
+      mode: "terraform",
+      region: "terraform",
+    });
+    setShowTerraformFilePanel(false);
+  }, [terraform, injectGraph]);
+
+  const handleTerraformFilesAccepted = useCallback((fileList) => {
+    terraform.addFiles(fileList);
+    setShowTerraformFilePanel(true);
+  }, [terraform]);
 
   const handleAnnotationClick = useCallback((annotationId) => {
     setCollapsedContainers((prev) => {
@@ -365,6 +396,25 @@ export default function CloudWirePage() {
         tagDiscovery={tagDiscovery}
         onScanByTags={handleScanByTags}
         tagScanLoading={tagScanLoading}
+        onOpenTerraformFilePanel={() => setShowTerraformFilePanel((v) => !v)}
+        terraformLoaded={terraform.lastResult != null}
+        terraformResourceCount={terraform.lastResult?.resource_count ?? 0}
+        terraformFileCount={terraform.files.length}
+      />
+
+      <TerraformFilePanel
+        open={showTerraformFilePanel}
+        onClose={() => setShowTerraformFilePanel(false)}
+        files={terraform.files}
+        onAddFiles={terraform.addFiles}
+        onRemoveFile={terraform.removeFile}
+        onClearFiles={() => {
+          terraform.clearFiles();
+          injectGraph(`tf-cleared-${Date.now()}`, { nodes: [], edges: [], metadata: {} });
+        }}
+        onParse={handleTerraformParsed}
+        loading={terraform.loading}
+        error={terraform.error}
       />
 
       <div className="cloudwire-layout">
@@ -413,15 +463,21 @@ export default function CloudWirePage() {
         </ErrorBoundary>
 
         <main className="graph-stage-shell">
-          {bootstrapLoading && graphNodes.length === 0 && (
+          {/* Terraform full-canvas drop zone — use lastResult (not graphNodes.length)
+              to avoid a brief flash where loading=false but graphData hasn't rendered yet */}
+          {scanFilterMode === "terraform" && !terraform.lastResult && !terraform.loading && (
+            <TerraformDropZone onFilesAccepted={handleTerraformFilesAccepted} />
+          )}
+
+          {bootstrapLoading && graphNodes.length === 0 && scanFilterMode !== "terraform" && (
             <div className="graph-stage-loading">Connecting to backend...</div>
           )}
 
-          {(scanLoading || tagScanLoading) && (
+          {(scanLoading || tagScanLoading || terraform.loading) && (
             <div className="graph-scan-loading-overlay">
               <div className="graph-scan-loading-spinner" />
               <span className="graph-scan-loading-label">
-                {tagScanLoading ? "Discovering resources..." : jobStatus?.current_service ? `Scanning ${jobStatus.current_service}...` : "Scanning..."}
+                {terraform.loading ? "Parsing Terraform state..." : tagScanLoading ? "Discovering resources..." : jobStatus?.current_service ? `Scanning ${jobStatus.current_service}...` : "Scanning..."}
               </span>
               {jobStatus?.progress_percent > 0 && (
                 <div className="graph-scan-loading-progress">
@@ -435,7 +491,9 @@ export default function CloudWirePage() {
             <div className="graph-empty-state">
               <div className="graph-empty-title">No resources found</div>
               <div className="graph-empty-hint">
-                {scanFilterMode === "tags"
+                {scanFilterMode === "terraform"
+                  ? "The uploaded Terraform state files contained no recognizable AWS resources."
+                  : scanFilterMode === "tags"
                   ? "No resources matched the selected tags in this region. Try different tag filters or check that your resources are tagged."
                   : selectedServices.length === 0
                   ? "Select at least one service and run a scan."

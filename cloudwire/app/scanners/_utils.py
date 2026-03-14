@@ -8,7 +8,13 @@ from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger("cloudwire.app.scanner")
 
-_ARN_PATTERN = re.compile(r"^arn:aws:[a-z0-9-]+:")
+# Matches the minimal valid AWS ARN structure:
+#   arn:aws[suffix]:<service>:<region>:<account-id>:<resource>
+# where account-id is either empty (global services like S3/IAM) or 12 digits.
+# The resource part must be non-empty.
+_ARN_PATTERN = re.compile(
+    r"^arn:aws[a-z-]*:[a-z0-9-]+:[a-z0-9-]*:(\d{12}|):[\w/:.*@-]+"
+)
 
 
 def _safe_list(value: Any) -> List[Any]:

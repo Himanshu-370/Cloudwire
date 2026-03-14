@@ -22,11 +22,17 @@ export function useGraphPipeline({
   selectedNodeId,
   focusDepth,
   layoutMode,
+  skipRegionFilter,
 }) {
   // Region filter
   const regionFilteredGraph = useMemo(
-    () => filterGraphByRegion(graphData.nodes, graphData.edges, region),
-    [graphData.edges, graphData.nodes, region]
+    () => {
+      if (skipRegionFilter) {
+        return { nodes: graphData.nodes, edges: graphData.edges };
+      }
+      return filterGraphByRegion(graphData.nodes, graphData.edges, region);
+    },
+    [graphData.edges, graphData.nodes, region, skipRegionFilter]
   );
 
   // Service visibility filter
