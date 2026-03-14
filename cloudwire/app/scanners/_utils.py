@@ -25,6 +25,12 @@ def _safe_list(value: Any) -> List[Any]:
     return [value]
 
 
+def _service_from_arn(arn: str) -> str:
+    """Extract the AWS service segment from an ARN, returning '' on failure."""
+    parts = arn.split(":")
+    return parts[2] if len(parts) > 2 and parts[2] else ""
+
+
 # Well-known Lambda environment variable suffixes that imply a resource reference.
 # Mapping of suffix -> (service, node_type).
 _ENV_VAR_CONVENTIONS: Dict[str, Tuple[str, str]] = {

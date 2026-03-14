@@ -15,6 +15,12 @@ from .graph_store import GraphStore
 from .models import JobStatus, ScanMode
 
 _MAX_RETAINED_TERMINAL_JOBS = 50
+_MAX_IN_FLIGHT_JOBS = 8
+
+
+class TooManyJobsError(Exception):
+    """Raised when the in-flight job limit is exceeded."""
+    pass
 
 
 def _utc_now_iso() -> str:
@@ -129,6 +135,10 @@ class ScanJobStore:
 
             return None, False
 
+    def _count_in_flight_locked(self) -> int:
+        """Count jobs that are queued or running. Must be called under self._lock."""
+        return sum(1 for job in self._jobs.values() if job.status in {"queued", "running"})
+
     def create_job(
         self,
         *,
@@ -153,6 +163,11 @@ class ScanJobStore:
             services_total=len(services),
         )
         with self._lock:
+            if self._count_in_flight_locked() >= _MAX_IN_FLIGHT_JOBS:
+                raise TooManyJobsError(
+                    f"Too many concurrent scan jobs (limit {_MAX_IN_FLIGHT_JOBS}). "
+                    "Wait for a running scan to finish or cancel one."
+                )
             self._jobs[job_id] = job
             self._in_flight[cache_key] = job_id
             self._prune_terminal_jobs_locked()
@@ -305,6 +320,13 @@ class ScanJobStore:
             job.active_services = []
             job.finished_at = _utc_now_iso()
             self._in_flight.pop(job.cache_key, None)
+
+    def update_services_total(self, job_id: str, total: int) -> None:
+        """Thread-safe update of a job's services_total count."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.services_total = total
 
     def get_job(self, job_id: str) -> ScanJob:
         with self._lock:

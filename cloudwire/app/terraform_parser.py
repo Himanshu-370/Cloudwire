@@ -8,7 +8,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .graph_store import GraphStore
-from .scanners._utils import _ARN_PATTERN, _ENV_VAR_CONVENTIONS
+from .scanners._utils import _ARN_PATTERN, _ENV_VAR_CONVENTIONS, _service_from_arn
 
 logger = logging.getLogger(__name__)
 
@@ -203,14 +203,6 @@ def _get_nested(data: Dict[str, Any], *keys: str) -> Any:
         if current is None:
             return None
     return current
-
-
-def _service_from_arn(arn: str) -> Optional[str]:
-    """Extract the AWS service segment from an ARN."""
-    parts = arn.split(":")
-    if len(parts) >= 3:
-        return parts[2]
-    return None
 
 
 def _label_for_resource(

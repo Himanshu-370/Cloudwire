@@ -20,6 +20,11 @@ class GraphStore:
             "warnings": [],
         }
         self._lock = Lock()
+        self._cached_payload: Dict[str, Any] | None = None
+
+    def _invalidate_cache(self) -> None:
+        """Must be called under self._lock whenever the graph or metadata changes."""
+        self._cached_payload = None
 
     def reset(self, *, region: str, services: List[str]) -> None:
         with self._lock:
@@ -30,14 +35,17 @@ class GraphStore:
                 "scanned_services": services,
                 "warnings": [],
             }
+            self._invalidate_cache()
 
     def add_warning(self, warning: str) -> None:
         with self._lock:
             self.metadata.setdefault("warnings", []).append(warning)
+            self._invalidate_cache()
 
     def update_metadata(self, **kwargs: Any) -> None:
         with self._lock:
             self.metadata.update(kwargs)
+            self._invalidate_cache()
 
     def add_node(self, node_id: str, **attrs: Any) -> None:
         with self._lock:
@@ -45,12 +53,14 @@ class GraphStore:
             merged = {**current, **attrs}
             merged["id"] = node_id
             self.graph.add_node(node_id, **merged)
+            self._invalidate_cache()
 
     def add_edge(self, source: str, target: str, **attrs: Any) -> None:
         with self._lock:
             current = self.graph.get_edge_data(source, target, default={})
             merged = {**current, **attrs}
             self.graph.add_edge(source, target, **merged)
+            self._invalidate_cache()
 
     def _serialize_node(self, node_id: str, attrs: Dict[str, Any]) -> Dict[str, Any]:
         payload = {"id": node_id}
@@ -64,6 +74,8 @@ class GraphStore:
 
     def get_graph_payload(self) -> Dict[str, Any]:
         with self._lock:
+            if self._cached_payload is not None:
+                return self._cached_payload
             nodes = [self._serialize_node(node_id, attrs) for node_id, attrs in self.graph.nodes(data=True)]
             edges = [
                 self._serialize_edge(source, target, attrs)
@@ -72,7 +84,9 @@ class GraphStore:
             metadata = dict(self.metadata)
             metadata["node_count"] = len(nodes)
             metadata["edge_count"] = len(edges)
-            return {"nodes": nodes, "edges": edges, "metadata": metadata}
+            payload = {"nodes": nodes, "edges": edges, "metadata": metadata}
+            self._cached_payload = payload
+            return payload
 
     def iter_nodes_by_service(self, service: str) -> List[Tuple[str, Dict[str, Any]]]:
         """Return a snapshot of (node_id, attrs_copy) pairs for a given service."""
@@ -94,6 +108,7 @@ class GraphStore:
             for node_id, attrs in updates:
                 if self.graph.has_node(node_id):
                     self.graph.nodes[node_id].update(attrs)
+            self._invalidate_cache()
 
     def _node_matches_arns(self, node_id: str, attrs: Dict[str, Any], allowed_arns: Set[str]) -> bool:
         """Check if a node matches any of the allowed ARNs.
@@ -190,6 +205,7 @@ class GraphStore:
             ]
             for node_id in nodes_to_remove:
                 self.graph.remove_node(node_id)
+            self._invalidate_cache()
             logger.debug(
                 "filter_by_arns: seeds=%d, neighbors=%d, kept=%d, removed=%d",
                 len(seed_ids), len(neighbor_ids), len(keep_ids), len(nodes_to_remove),

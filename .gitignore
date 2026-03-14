@@ -18,3 +18,31 @@ cloudwire/static/vite.svg
 dist/
 build/
 *.egg-info/
+
+# Environment variables
+.env
+.env.*
+*.env
+
+# Test and coverage artifacts
+.pytest_cache/
+htmlcov/
+coverage/
+.coverage
+
+# Linting cache
+.ruff_cache/
+.eslintcache
+
+# Logs
+*.log
+
+# Agent memory
+memory/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

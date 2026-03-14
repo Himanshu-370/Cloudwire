@@ -48,12 +48,7 @@ def _sanitize_exc(exc: Exception) -> str:
     return type(exc).__name__
 
 
-def _safe_list(value: Any) -> List[Any]:
-    if isinstance(value, list):
-        return value
-    if value is None:
-        return []
-    return [value]
+from .scanners._utils import _safe_list
 
 
 _ARN_PATTERN = re.compile(r"^arn:aws:[a-z0-9-]+:")
@@ -181,6 +176,7 @@ class AWSGraphScanner(
         self._iam_role_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._iam_cache_lock = Lock()
         self._node_attr_index: Dict[tuple, str] = {}  # (service, attr, value) -> node_id
+        self._node_attr_lock = Lock()
         self._metrics_lock = Lock()
         self._api_call_counts: Dict[str, int] = {}
         self._service_durations_ms: Dict[str, int] = {}
@@ -359,10 +355,11 @@ class AWSGraphScanner(
         self.store.add_node(node_id, region=self._region, **attrs)
         service = attrs.get("service")
         if service:
-            for attr_name in ("domain", "label"):
-                val = attrs.get(attr_name)
-                if val:
-                    self._node_attr_index[(service, attr_name, val)] = node_id
+            with self._node_attr_lock:
+                for attr_name in ("domain", "label"):
+                    val = attrs.get(attr_name)
+                    if val:
+                        self._node_attr_index[(service, attr_name, val)] = node_id
 
     @staticmethod
     def _parse_sg_rules(permissions: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -421,7 +418,8 @@ class AWSGraphScanner(
 
     def _find_node_by_attr(self, service: str, attr: str, value: str) -> Optional[str]:
         """Find an existing node of a given service where attr == value. Returns node_id or None."""
-        return self._node_attr_index.get((service, attr, value))
+        with self._node_attr_lock:
+            return self._node_attr_index.get((service, attr, value))
 
     def _add_arn_node(self, arn: str, *, label: Optional[str] = None, node_type: str = "resource") -> str:
         self._ensure_not_cancelled()

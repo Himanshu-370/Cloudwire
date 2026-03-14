@@ -1,19 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
-const API_PREFIX = "/api";
-
-async function fetchJson(path, signal) {
-  const response = await fetch(`${API_PREFIX}${path}`, signal ? { signal } : undefined);
-  if (!response.ok) {
-    let msg = `Request failed (${response.status})`;
-    try {
-      const body = await response.json();
-      msg = body?.error?.message || msg;
-    } catch { /* ignore */ }
-    throw new Error(msg);
-  }
-  return response.json();
-}
+import { fetchApi } from "../lib/api";
 
 /**
  * Hook for tag-based resource discovery.
@@ -55,7 +41,7 @@ export function useTagDiscovery(region, enabled = false) {
     setTagKeysError("");
 
     try {
-      const data = await fetchJson(
+      const data = await fetchApi(
         `/tags/keys?region=${encodeURIComponent(region)}`
       );
       if (token !== fetchTokenRef.current) return;
@@ -82,9 +68,9 @@ export function useTagDiscovery(region, enabled = false) {
 
     setValuesLoadingKeys((prev) => new Set([...prev, key]));
 
-    fetchJson(
+    fetchApi(
       `/tags/values?region=${encodeURIComponent(region)}&key=${encodeURIComponent(key)}`,
-      controller.signal
+      { signal: controller.signal }
     )
       .then((data) => {
         setTagValuesByKey((prev) => ({ ...prev, [key]: (data.values || []).sort() }));
@@ -210,9 +196,9 @@ export function useTagDiscovery(region, enabled = false) {
         Key: f.key,
         Values: f.values,
       }));
-      const data = await fetchJson(
+      const data = await fetchApi(
         `/tags/resources?region=${encodeURIComponent(region)}&tag_filters=${encodeURIComponent(JSON.stringify(awsFilters))}`,
-        controller.signal
+        { signal: controller.signal }
       );
       setDiscoveredServices(data.services || []);
       setDiscoveredArns(data.arns || []);

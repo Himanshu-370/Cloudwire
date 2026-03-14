@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cloudwire"
-version = "0.2.4"
+version = "0.2.5"
 description = "Scan and visualize your AWS infrastructure as an interactive graph"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
 keywords = ["aws", "cloud", "visualization", "graph", "infrastructure"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Environment :: Web Environment",
     "Intended Audience :: Developers",
@@ -44,8 +44,8 @@ dependencies = [
 cloudwire = "cloudwire.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/hisingh_gwre/cloudwire"
-Issues = "https://github.com/hisingh_gwre/cloudwire/issues"
+Homepage = "https://github.com/Himanshu-370/cloudwire"
+Issues = "https://github.com/Himanshu-370/cloudwire/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -1,6 +1,13 @@
 # CloudWire
 
-Scan your AWS account and visualize resource dependencies as an interactive graph — directly in your browser, running entirely on your local machine.
+AWS infrastructure visualization tool — scan your account and explore service dependencies as an interactive graph, directly in your browser.
+
+[![PyPI version](https://img.shields.io/pypi/v/cloudwire.svg)](https://pypi.org/project/cloudwire/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cloudwire.svg)](https://pypi.org/project/cloudwire/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Build](https://github.com/Himanshu-370/cloudwire/actions/workflows/publish.yml/badge.svg)](https://github.com/Himanshu-370/cloudwire/actions/workflows/publish.yml)
+
+If CloudWire saves you time, a [GitHub star](https://github.com/Himanshu-370/cloudwire) helps others find it.
 
 No data leaves your system. AWS credentials never leave your terminal. The graph is built locally using your existing credential chain (`~/.aws/credentials`, `aws sso login`, `saml2aws`, `aws-vault` — all work out of the box).
 
@@ -8,32 +15,70 @@ No data leaves your system. AWS credentials never leave your terminal. The graph
   <img src="docs/cloudgraph.svg" alt="CloudWire — AWS infrastructure graph visualization" width="100%">
 </p>
 
+> **Note:** The screenshot above contains placeholder resource IDs. Replace `docs/cloudgraph.svg` with a sanitized screenshot from your own environment.
+
+<!-- TODO: Once a demo video is recorded, replace the static image above with:
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=YOUR_VIDEO_ID">
+    <img src="docs/demo-thumbnail.png" alt="CloudWire demo — click to watch" width="100%">
+  </a>
+</p>
+-->
+
 ---
 
-## Install
+## Quick start
 
 ```bash
+# Install
 pip install cloudwire
+
+# Launch (opens http://localhost:8080 automatically)
 cloudwire
+
+# Target a specific profile and region
+cloudwire --profile staging --region us-east-1
 ```
 
-That's it. The browser opens automatically at `http://localhost:8080`.
+> **Tip:** Prefer isolated installs? Use `pipx install cloudwire` instead.
 
 > **Requirements:** Python 3.9+ and valid AWS credentials configured locally.
 
+On first load, select the services you want to scan from the top bar and click **Scan**. The graph populates in real time as resources are discovered.
+
 ---
 
-## What it looks like
+## Key features
 
-- Dark hacker-aesthetic graph canvas with animated data flow
-- 24 AWS services with dedicated icons, colors, and role badges
-- Edges represent real relationships — API integrations, event triggers, IAM policy inference, env var references
-- Four layout modes — Circular (default), Flow, Swimlane — switchable from the graph toolbar
-- VPC network topology with CloudMapper-style diagrams — internet anchors, SG rule edges with port labels, AZ grouping, collapsible containers
-- Tag-based scanning — discover and scan resources by AWS tags with searchable multi-select dropdowns
-- Click any node to inspect its attributes, incoming/outgoing edges, and resource-specific tooltip
-- Search, filter by service, highlight upstream/downstream blast radius, find shortest path
-- Permission errors surfaced clearly — see exactly which IAM policies are missing
+- **Interactive graph** — dark-themed canvas with animated data flow, pan/zoom, and SVG export
+- **24 AWS services** with dedicated scanners, icons, colors, and relationship inference
+- **Real edges** — API integrations, event triggers, IAM policy inference, env var references, VPC containment
+- **VPC topology** — subnets, security groups, IGWs, NAT GWs, route tables with AZ grouping and internet exposure detection
+- **Tag-based scanning** — discover and scan resources by AWS tags
+- **Terraform import** — upload `.tfstate` or `.tf` files to visualize without AWS credentials
+- **Analysis tools** — blast radius, shortest path, architecture summary, pattern detection
+- **Four layout modes** — Circular, Flow, Swimlane — switchable from the toolbar
+- **Permission-aware** — missing IAM policies surfaced clearly, never blocks the scan
+
+<!-- TODO: Add 2-3 annotated screenshots here showing:
+  1. Full UI with sidebar + multi-service graph (Lambda → SQS → DynamoDB)
+  2. Inspector panel open on a node showing attributes and edges
+  3. VPC topology view with AZ grouping
+-->
+
+---
+
+## Required IAM permissions
+
+CloudWire is **read-only**. All operations use `List*`, `Describe*`, and `Get*` API actions only — no write access required.
+
+A minimal IAM policy is documented in [docs/USAGE.md](docs/USAGE.md). The recommended starting point:
+
+```
+arn:aws:iam::aws:policy/ReadOnlyAccess
+```
+
+If you use a more restrictive policy, CloudWire will scan what it can and clearly report which services were denied — it never fails silently.
 
 ---
 
@@ -63,122 +108,39 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 | AppSync | Dedicated — GraphQL APIs |
 | Secrets Manager | Dedicated |
 | KMS | Dedicated |
-| VPC Network | Dedicated — VPCs, subnets, security groups, IGWs, NAT GWs, route tables; scoped to referenced VPCs |
+| VPC Network | Dedicated — VPCs, subnets, security groups, IGWs, NAT GWs, route tables |
 | ELB | Discovered via CloudFront, Route 53, ECS edges |
 | Everything else | Generic (tagged resources only) |
 
 ---
 
-## Project structure
+## How it works
 
-```
-cloudwire/                        # Python package (the distributable unit)
-├── __init__.py                 # Package version
-├── cli.py                      # `cloudwire` CLI entry point (click)
-├── static/                     # Built React app (populated by `make build`)
-│   ├── index.html
-│   └── assets/
-└── app/                        # FastAPI backend
-    ├── main.py                 # App factory, API routes (/api/*), static serving
-    ├── models.py               # Pydantic request/response models
-    ├── services.py             # Canonical service registry — single source of truth
-    ├── scanner.py              # Scan orchestrator, shared helpers, mixin composition
-    ├── scanners/               # Per-service scanner modules (mixin classes)
-    │   ├── _utils.py           # Shared constants (ARN pattern, env var conventions)
-    │   ├── apigateway.py       # REST + HTTP APIs, integrations, authorizers
-    │   ├── lambda_.py          # Functions, event sources, IAM policy inference
-    │   ├── vpc.py              # VPCs, subnets, SGs, IGWs, NATs, route tables
-    │   ├── glue.py             # Jobs, crawlers, triggers
-    │   └── ...                 # 16 more service scanners (one per AWS service)
-    ├── scan_jobs.py            # Async job store with progress tracking
-    └── graph_store.py          # networkx graph with thread-safe mutations
-
-frontend/                       # React + Vite source (compiled into cloudwire/static/)
-├── src/
-│   ├── pages/CloudWirePage.jsx # Main page — orchestrates all state
-│   ├── components/
-│   │   ├── graph/              # GraphCanvas, GraphNode, GraphEdge, Minimap, Legend
-│   │   ├── layout/             # TopBar, ServiceSidebar, InspectorPanel, TagFilterBar
-│   │   └── ErrorBoundary.jsx   # React error boundary for graceful pane crashes
-│   ├── hooks/
-│   │   ├── useScanPolling.js   # Scan lifecycle, polling, graph data state
-│   │   ├── useTagDiscovery.js  # Tag-based resource discovery
-│   │   ├── useGraphPipeline.js # Graph filtering, clustering, layout pipeline
-│   │   ├── usePathFinder.js    # Shortest-path mode state management
-│   │   ├── useClickOutside.js  # Shared click-outside hook
-│   │   └── useGraphViewport.js # Pan/zoom viewport state
-│   ├── lib/
-│   │   ├── graphTransforms.js  # Layout algorithms, annotations, container collapse
-│   │   ├── serviceVisuals.jsx  # Service icon + color map
-│   │   └── awsRegions.js       # AWS region list
-│   └── styles/graph.css        # All UI styles
-├── vite.config.js              # base: "./", outDir: ../cloudwire/static, dev proxy
-└── package.json
-
-.github/workflows/publish.yml   # CI: build + publish to PyPI on version tag push
-pyproject.toml                  # Package metadata, dependencies, entry point
-Makefile                        # make build / make dev / make clean
-.python-version                 # Pins Python 3.11 for consistent builds
-```
+CloudWire is a Python CLI (FastAPI backend) that serves a pre-compiled React frontend. The backend scans AWS via boto3 and builds a [networkx](https://networkx.org/) graph. The frontend visualizes it using a custom SVG canvas engine. No database, no cloud dependency — everything runs in a single process on your machine.
 
 ---
 
 ## Contributing
 
-### Prerequisites
-
-- Python 3.9+ (3.11 recommended)
-- Node.js 18+
-- AWS credentials configured (any method)
-
-### Set up the dev environment
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, project structure, code style, and PR guidelines.
 
 ```bash
-git clone https://github.com/hisingh_gwre/cloudwire
+git clone https://github.com/Himanshu-370/cloudwire
 cd cloudwire
-
-# Python
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-
-# Frontend
-cd frontend && npm install
+make dev   # starts backend + frontend in parallel
 ```
-
-### Run in development mode
-
-```bash
-make dev
-```
-
-This starts the FastAPI backend on `:8000` (with `--reload`) and the Vite dev server on `:5173` concurrently. The Vite dev server proxies all `/api/*` requests to the backend — no CORS config needed.
-
-### Making changes
-
-| Area | Where to edit |
-|------|--------------|
-| Add a new AWS service scanner | `cloudwire/app/scanners/` → create a mixin class, import it in `scanner.py`, add to the class bases and `service_scanners` dict |
-| Change graph layout | `frontend/src/lib/graphTransforms.js` |
-| Add a new UI component | `frontend/src/components/` |
-| Change API routes | `cloudwire/app/main.py` — all routes are under the `/api` prefix |
-| Change CLI options | `cloudwire/cli.py` |
-
-### Before opening a PR
-
-- Run a scan against a real (or mocked) AWS account and confirm the graph renders
-- Make sure `make build` completes without errors
-- Keep PRs focused — one feature or fix per PR
-
-### Code style
-
-- Python: standard library imports first, then third-party, then local. No formatter enforced yet.
-- JavaScript: no linter enforced yet. Match the style of the surrounding file.
 
 ---
 
 ## Links
 
+- [Architecture deep dive](docs/ARCHITECTURE.md)
 - [Full feature list](docs/FEATURES.md)
 - [Usage & setup guide](docs/USAGE.md)
+- [Changelog](CHANGELOG.md)
 - [Release guide for maintainers](docs/RELEASING.md)
+- [Security policy](SECURITY.md)
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 .PHONY: frontend package build clean install-dev dev release help
 
-PYTHON ?= python3.11
+PYTHON ?= python3
 NPM    ?= npm
 
 help: ## Show this help
@@ -32,8 +32,8 @@ release: ## Bump version, build, and publish to PyPI  →  usage: make release V
 		echo "ERROR: specify a version — e.g.  make release V=0.1.1"; exit 1; \
 	fi
 	@echo "Bumping version to $(V) ..."
-	@sed -i '' 's/__version__ = ".*"/__version__ = "$(V)"/' cloudwire/__init__.py
-	@sed -i '' 's/^version = ".*"/version = "$(V)"/' pyproject.toml
+	@$(PYTHON) -c "import re, sys; f='cloudwire/__init__.py'; t=open(f).read(); open(f,'w').write(re.sub(r'__version__ = \".*\"', '__version__ = \"$(V)\"', t))"
+	@$(PYTHON) -c "import re, sys; f='pyproject.toml'; t=open(f).read(); open(f,'w').write(re.sub(r'^version = \".*\"', 'version = \"$(V)\"', t, flags=re.M))"
 	@echo "Cleaning previous build ..."
 	@$(MAKE) clean
 	@echo "Building ..."

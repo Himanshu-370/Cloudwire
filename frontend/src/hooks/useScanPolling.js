@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_REGION } from "../lib/awsRegions";
+import { fetchApi } from "../lib/api";
 import { normalizeGraph } from "../lib/graphTransforms";
-
-// All requests are same-origin in production (served by the cloudwire CLI).
-// In dev, vite.config.js proxies /api/* to http://localhost:8000.
-const API_PREFIX = "/api";
 
 // Auto-abandon a hung scan after 10 minutes
 const MAX_SCAN_MS = 10 * 60 * 1000;
@@ -18,53 +15,6 @@ function nextPollDelayMs(startedAt) {
 
 function isTerminalJobStatus(status) {
   return ["completed", "failed", "cancelled"].includes(status);
-}
-
-async function parseErrorResponse(response, fallbackMessage) {
-  let rawText = "";
-  let payload = null;
-  try {
-    rawText = await response.text();
-    payload = rawText ? JSON.parse(rawText) : null;
-  } catch {
-    payload = null;
-  }
-
-  const apiError = payload?.error;
-  if (apiError?.message) {
-    if (apiError.code === "validation_error" && Array.isArray(apiError.details)) {
-      const firstIssue = apiError.details[0];
-      if (firstIssue?.msg) {
-        return `${apiError.message} ${firstIssue.msg}`;
-      }
-    }
-    return apiError.message;
-  }
-
-  if (typeof payload?.detail === "string") {
-    return payload.detail;
-  }
-
-  return rawText || `${fallbackMessage} (${response.status})`;
-}
-
-async function requestJson(path, options = {}, fallbackMessage = "API request failed") {
-  let response;
-  try {
-    response = await fetch(`${API_PREFIX}${path}`, options);
-  } catch (error) {
-    // Only treat network-level TypeErrors as "backend unreachable"
-    if (error instanceof TypeError && /failed to fetch|network/i.test(error.message)) {
-      throw new Error("Unable to reach the backend. If running in development, start uvicorn on port 8000.");
-    }
-    throw error;
-  }
-
-  if (!response.ok) {
-    throw new Error(await parseErrorResponse(response, fallbackMessage));
-  }
-
-  return response.json();
 }
 
 const EMPTY_GRAPH = { nodes: [], edges: [], metadata: {} };
@@ -93,18 +43,18 @@ export function useScanPolling() {
   }, []);
 
   const fetchGraph = useCallback(async () => {
-    const payload = await requestJson("/graph", {}, "Unable to load the latest graph");
+    const payload = await fetchApi("/graph", {}, "Unable to load the latest graph");
     setGraphData(normalizeGraph(payload));
     return payload;
   }, []);
 
   const fetchJobStatus = useCallback(async (jobId) => {
-    return requestJson(`/scan/${encodeURIComponent(jobId)}`, {}, "Unable to fetch scan status");
+    return fetchApi(`/scan/${encodeURIComponent(jobId)}`, {}, "Unable to fetch scan status");
   }, []);
 
   // fetchJobGraph accepts a token and only updates state if still valid
   const fetchJobGraph = useCallback(async (jobId, token) => {
-    const payload = await requestJson(
+    const payload = await fetchApi(
       `/scan/${encodeURIComponent(jobId)}/graph`,
       {},
       "Unable to load the scan graph"
@@ -120,8 +70,8 @@ export function useScanPolling() {
     const params = new URLSearchParams();
     if (jobId) params.set("job_id", jobId);
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    return requestJson(
-      `/resource/${resourceId}${suffix}`,
+    return fetchApi(
+      `/resource/${encodeURIComponent(resourceId)}${suffix}`,
       {},
       "Unable to load resource details"
     );
@@ -201,7 +151,7 @@ export function useScanPolling() {
       try {
         const scanBody = { region, services, mode, force_refresh: forceRefresh };
         if (tagArns) scanBody.tag_arns = tagArns;
-        const payload = await requestJson("/scan", {
+        const payload = await fetchApi("/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(scanBody),
@@ -245,7 +195,7 @@ export function useScanPolling() {
     setScanLoading(false);
 
     try {
-      const payload = await requestJson(`/scan/${encodeURIComponent(currentJobId)}/stop`, {
+      const payload = await fetchApi(`/scan/${encodeURIComponent(currentJobId)}/stop`, {
         method: "POST",
       }, "Unable to stop the scan");
       setJobStatus(payload);

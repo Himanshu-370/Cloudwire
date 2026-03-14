@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-
-const API_PREFIX = "/api";
+import { API_PREFIX, parseErrorResponse } from "../lib/api";
 
 /**
  * Hook for uploading and parsing Terraform .tfstate files.
@@ -73,12 +72,7 @@ export function useTerraformUpload() {
       });
 
       if (!response.ok) {
-        let msg = `Upload failed (${response.status})`;
-        try {
-          const body = await response.json();
-          msg = body?.error?.message || msg;
-        } catch { /* ignore */ }
-        throw new Error(msg);
+        throw new Error(await parseErrorResponse(response, "Upload failed"));
       }
 
       const result = await response.json();
