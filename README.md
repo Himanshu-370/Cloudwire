@@ -15,16 +15,6 @@ No data leaves your system. AWS credentials never leave your terminal. The graph
   <img src="docs/cloudgraph.svg" alt="CloudWire — AWS infrastructure graph visualization" width="100%">
 </p>
 
-> **Note:** The screenshot above contains placeholder resource IDs. Replace `docs/cloudgraph.svg` with a sanitized screenshot from your own environment.
-
-<!-- TODO: Once a demo video is recorded, replace the static image above with:
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=YOUR_VIDEO_ID">
-    <img src="docs/demo-thumbnail.png" alt="CloudWire demo — click to watch" width="100%">
-  </a>
-</p>
--->
-
 ---
 
 ## Quick start
@@ -57,14 +47,9 @@ On first load, select the services you want to scan from the top bar and click *
 - **Tag-based scanning** — discover and scan resources by AWS tags
 - **Terraform import** — upload `.tfstate` or `.tf` files to visualize without AWS credentials
 - **Analysis tools** — blast radius, shortest path, architecture summary, pattern detection
-- **Four layout modes** — Circular, Flow, Swimlane — switchable from the toolbar
+- **Three layout modes** — Circular, Flow, Swimlane — switchable from the toolbar
 - **Permission-aware** — missing IAM policies surfaced clearly, never blocks the scan
 
-<!-- TODO: Add 2-3 annotated screenshots here showing:
-  1. Full UI with sidebar + multi-service graph (Lambda → SQS → DynamoDB)
-  2. Inspector panel open on a node showing attributes and edges
-  3. VPC topology view with AZ grouping
--->
 
 ---
 

@@ -138,8 +138,10 @@ For a tighter policy, here are the core permissions used per service:
 | ElastiCache | `elasticache:DescribeCacheClusters` |
 | Glue | `glue:ListJobs`, `glue:GetCrawlers`, `glue:GetTriggers` |
 | AppSync | `appsync:ListGraphqlApis` |
-| Generic fallback | `tag:GetResources` |
+| Generic fallback* | `tag:GetResources` |
 | All scans | `sts:GetCallerIdentity` (to resolve account ID) |
+
+> *\*Generic fallback:* Services not listed above (and any additional services discovered via tags) use the Resource Groups Tagging API (`tag:GetResources`) rather than dedicated service APIs. These will only discover resources that have AWS tags attached.
 
 ---
 
@@ -196,6 +198,21 @@ Switch the mode toggle from **Services** to **Tags** to scan by AWS resource tag
 5. Click **Scan by tags** to discover and scan matching resources
 
 Your manual service selections are preserved — they are not overwritten by tag scan results.
+
+### Terraform import
+
+You can visualize infrastructure from Terraform files without AWS credentials:
+
+1. Drag and drop `.tfstate`, `.json` (state files), or `.tf` (HCL) files onto the **Terraform drop zone** in the UI
+2. CloudWire parses the files, extracts `aws_*` resources, and builds the graph using the same visualization pipeline as live scans
+3. Relationships between resources are inferred from resource attributes, ARN references, and environment variables
+
+**Limits:**
+- Maximum **10 files** per upload
+- Maximum **20 MB** total upload size
+- Accepted extensions: `.tfstate`, `.json`, `.tf`
+
+Multiple files can be combined in a single upload to build a unified graph. This is useful for reviewing Terraform plans or visualizing infrastructure when you don't have direct AWS access.
 
 ### VPC network topology
 
@@ -291,7 +308,7 @@ curl http://localhost:8000/api/health
 
 ## Caching
 
-Completed scans are cached for 5 minutes (quick mode) or 30 minutes (deep mode). If you scan the same region and services again within the cache window, the existing results are returned immediately without re-scanning. Use **Force refresh** (scan with the same parameters a second time after disabling cache, or add a `force_refresh: true` in the API payload) to bypass the cache.
+Completed scans are cached for 5 minutes (quick mode) or 30 minutes (deep mode). If you scan the same region and services again within the cache window, the existing results are returned immediately without re-scanning. To bypass the cache, either pass `force_refresh: true` in the API payload or wait for the cache window to expire. Re-scanning with the same parameters within the window will return the cached result.
 
 ---
 

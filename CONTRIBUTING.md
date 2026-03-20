@@ -87,6 +87,7 @@ frontend/                       # React + Vite source (compiled into cloudwire/s
 
 ## Before opening a PR
 
+- [ ] Run `make lint` and fix any ruff errors
 - [ ] Run a scan against a real (or mocked) AWS account and confirm the graph renders
 - [ ] Make sure `make build` completes without errors
 - [ ] Keep PRs focused -- one feature or fix per PR
@@ -94,7 +95,7 @@ frontend/                       # React + Vite source (compiled into cloudwire/s
 
 ## Code style
 
-- **Python:** standard library imports first, then third-party, then local. Match surrounding style.
+- **Python:** standard library imports first, then third-party, then local. Run `make lint` before opening a PR — ruff is configured in `pyproject.toml` (line-length 120, E/F/I/UP rules).
 - **JavaScript:** match the style of the surrounding file. No linter enforced yet.
 
 ## Good first issues

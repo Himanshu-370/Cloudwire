@@ -2,6 +2,27 @@
 
 All notable changes to CloudWire are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.5] - 2026-03-17
+
+### Added
+- Dependabot configuration for automated Python and npm dependency updates
+- Request body size limit middleware (2 MB cap on JSON endpoints)
+- API 404 catch-all for unmatched `/api/*` routes (returns JSON instead of SPA HTML)
+- Ruff linting configuration in `pyproject.toml`
+- `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1)
+- `make lint` Makefile target
+
+### Changed
+- Version now derived from package metadata via `importlib.metadata` (single source of truth in `pyproject.toml`)
+- Dev extras expanded with `ruff` and `mypy`
+
+### Fixed
+- Ghost `cloudwire/app/cost/` directory with orphaned `.pyc` files removed
+- SPA fallback no longer masks `/api/*` 404 errors with HTML responses
+
+### Removed
+- AI-generated `CODEBASE_DEEP_DIVE.md` from repository tracking
+
 ## [0.2.4] - 2026-03-14
 
 ### Added

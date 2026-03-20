@@ -41,7 +41,7 @@ function curvedPath(source, target) {
   return { path: `M${source.x},${source.y} Q${cx},${cy} ${target.x},${target.y}`, labelX: cx, labelY: cy };
 }
 
-export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, showLabel, animated, pathHighlight, blastEdge }) {
+export const GraphEdge = React.memo(function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, showLabel, animated, pathHighlight, blastEdge }) {
   const sourceVisual = getServiceVisual(sourceNode?.service);
 
   // Color override based on mode
@@ -103,4 +103,22 @@ export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, 
       )}
     </g>
   );
-}
+}, function arePropsEqual(prev, next) {
+  return (
+    prev.edge.id === next.edge.id &&
+    prev.edge.relationship === next.edge.relationship &&
+    prev.edge.label === next.edge.label &&
+    prev.edge.port_range === next.edge.port_range &&
+    prev.sourceNode.position.x === next.sourceNode.position.x &&
+    prev.sourceNode.position.y === next.sourceNode.position.y &&
+    prev.sourceNode.service === next.sourceNode.service &&
+    prev.targetNode.position.x === next.targetNode.position.x &&
+    prev.targetNode.position.y === next.targetNode.position.y &&
+    prev.highlighted === next.highlighted &&
+    prev.hovered === next.hovered &&
+    prev.showLabel === next.showLabel &&
+    prev.animated === next.animated &&
+    prev.pathHighlight === next.pathHighlight &&
+    prev.blastEdge === next.blastEdge
+  );
+});

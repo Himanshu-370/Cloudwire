@@ -83,7 +83,18 @@ main.py (assembly)
   └── aws_clients.py       → boto3 client factories, region validation
 ```
 
-`main.py` is the assembly point (~130 lines). It creates the FastAPI app, registers middleware (security headers), exception handlers, and includes the three route modules.
+`main.py` is the assembly point. It creates the FastAPI app, registers middleware, exception handlers, and includes the three route modules. `aws_clients.py` is the centralized boto3 client factory with adaptive retry configuration (`mode: adaptive`, `max_attempts: 10`).
+
+### Middleware stack
+
+Middleware is applied in the following order (outermost first):
+
+1. **`RequestBodyLimitMiddleware`** — Caps JSON request bodies at 2 MB. Returns `413` for oversized payloads. Protects scan and tag endpoints from accidental or malicious large payloads.
+2. **`SecurityHeadersMiddleware`** — Adds security headers to all responses: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy`, and others.
+
+### API 404 catch-all
+
+A catch-all route (`/api/{path}`) returns a JSON 404 response instead of falling through to the SPA HTML. This prevents API misroutes from serving the React app, which would mask errors for API clients.
 
 ### Scan lifecycle
 
@@ -213,7 +224,9 @@ Each node is a `<GraphNode>` component (SVG `<g>` with `<rect>` + `<text>` + ser
 | 30 – 60 seconds | 2 seconds |
 | > 60 seconds | 3 seconds |
 
-A stale-poll token (integer, incremented on every new scan) ensures async callbacks from abandoned polls never update state. Scans are auto-abandoned after 10 minutes.
+A stale-poll token (integer, incremented on every new scan) ensures async callbacks from abandoned polls never update state. Scans are auto-abandoned after 10 minutes (`MAX_SCAN_MS = 10 * 60 * 1000`).
+
+The hook also exposes a `bootstrapLoading` state, distinct from `scanLoading`. `bootstrapLoading` fires when the page loads and detects an active job already in progress (e.g., after a page refresh mid-scan), allowing the UI to resume polling without requiring a new scan.
 
 ---
 

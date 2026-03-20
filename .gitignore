@@ -43,6 +43,9 @@ memory/
 # AI assistant config
 .claude/
 
+# Generated analysis docs
+CODEBASE_DEEP_DIVE.md
+
 # IDE
 .idea/
 .vscode/

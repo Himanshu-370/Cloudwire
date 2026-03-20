@@ -43,8 +43,40 @@ app = FastAPI(title="CloudWire API", version=_app_version, lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
-# Security headers middleware
+# Middleware — registered last-in first-out (outermost executes first)
 # ---------------------------------------------------------------------------
+
+_MAX_JSON_BODY_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
+class RequestBodyLimitMiddleware(BaseHTTPMiddleware):
+    """Reject oversized JSON request bodies before Pydantic validation."""
+
+    async def dispatch(self, request: Request, call_next):
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            # Fast path: reject immediately if Content-Length header exceeds limit
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > _MAX_JSON_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content=error_payload(
+                        "payload_too_large",
+                        f"Request body exceeds the {_MAX_JSON_BODY_BYTES // (1024 * 1024)} MB limit.",
+                    ),
+                )
+            # Also check actual body size (handles chunked transfers / missing header)
+            body = await request.body()
+            if len(body) > _MAX_JSON_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content=error_payload(
+                        "payload_too_large",
+                        f"Request body exceeds the {_MAX_JSON_BODY_BYTES // (1024 * 1024)} MB limit.",
+                    ),
+                )
+        return await call_next(request)
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -56,6 +88,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+app.add_middleware(RequestBodyLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 
@@ -121,6 +154,14 @@ app.include_router(api)
 
 if _STATIC_DIR.is_dir() and ((_STATIC_DIR / "assets").is_dir()):
     app.mount("/assets", StaticFiles(directory=str(_STATIC_DIR / "assets")), name="assets")
+
+
+@app.api_route("/api/{api_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], include_in_schema=False)
+def api_not_found(api_path: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content=error_payload("not_found", f"API endpoint '/api/{api_path}' not found."),
+    )
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

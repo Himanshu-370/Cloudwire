@@ -40,7 +40,7 @@ Scan any of the 29 supported AWS regions. CloudFront distributions are global an
 ### Interactive canvas
 Pan, zoom, and drag the canvas freely. The graph supports thousands of nodes without performance degradation through viewport virtualization — only nodes visible in the current view are rendered.
 
-### Four layout modes
+### Three layout modes
 - **Circular** (default) — nodes grouped by service in circular clusters. Good for getting an overview of what exists.
 - **Flow** — left-to-right sequential layout following data flow direction. Entry points appear on the left with START badges, terminal nodes on the right with END badges. Good for tracing how requests move through your system.
 - **Swimlane** — nodes arranged in horizontal lanes by role (triggers, processors, storage, queues). Good for comparing resources across services side by side.

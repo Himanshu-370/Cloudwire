@@ -64,6 +64,34 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   const fitTimersRef = useRef([]);
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState(null);
+  const hoverNodeRafRef = useRef(null);
+  const hoverEdgeRafRef = useRef(null);
+
+  const debouncedSetHoveredNodeId = useCallback((id) => {
+    if (id === null) {
+      if (hoverNodeRafRef.current) { cancelAnimationFrame(hoverNodeRafRef.current); hoverNodeRafRef.current = null; }
+      setHoveredNodeId(null);
+      return;
+    }
+    if (hoverNodeRafRef.current) cancelAnimationFrame(hoverNodeRafRef.current);
+    hoverNodeRafRef.current = requestAnimationFrame(() => {
+      hoverNodeRafRef.current = null;
+      setHoveredNodeId(id);
+    });
+  }, []);
+
+  const debouncedSetHoveredEdgeId = useCallback((id) => {
+    if (id === null) {
+      if (hoverEdgeRafRef.current) { cancelAnimationFrame(hoverEdgeRafRef.current); hoverEdgeRafRef.current = null; }
+      setHoveredEdgeId(null);
+      return;
+    }
+    if (hoverEdgeRafRef.current) cancelAnimationFrame(hoverEdgeRafRef.current);
+    hoverEdgeRafRef.current = requestAnimationFrame(() => {
+      hoverEdgeRafRef.current = null;
+      setHoveredEdgeId(id);
+    });
+  }, []);
   const [localPositions, setLocalPositions] = useState({});
   const { viewport, setViewport, screenToGraph, zoomAtPoint, fitToNodes, centerNode, resetView } = useGraphViewport();
   const viewportRef = useRef(viewport);
@@ -114,7 +142,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   const nodesWithPositions = useMemo(
     () =>
       nodes.map((node) => {
-        const frame = getNodeFrame(node, selectedNodeId === node.id);
+        const frame = getNodeFrame(node, false);
         return {
           ...node,
           position: localPositions[node.id] || node.position || { x: 0, y: 0 },
@@ -122,7 +150,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
           height: frame.height,
         };
       }),
-    [localPositions, nodes, selectedNodeId]
+    [localPositions, nodes]
   );
 
   const nodesRef = useRef(nodesWithPositions);
@@ -300,6 +328,8 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      if (hoverNodeRafRef.current) cancelAnimationFrame(hoverNodeRafRef.current);
+      if (hoverEdgeRafRef.current) cancelAnimationFrame(hoverEdgeRafRef.current);
     };
   }, [screenToGraph, setViewport]);
 
@@ -403,7 +433,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
                 : null)
               : null;
             return (
-              <g key={edge.id} onMouseEnter={() => setHoveredEdgeId(edge.id)} onMouseLeave={() => setHoveredEdgeId(null)}>
+              <g key={edge.id} onMouseEnter={() => debouncedSetHoveredEdgeId(edge.id)} onMouseLeave={() => debouncedSetHoveredEdgeId(null)}>
                 <GraphEdge
                   edge={edge}
                   sourceNode={sourceNode}
@@ -436,11 +466,11 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
                 key={node.id}
                 data-node-card="true"
                 onMouseEnter={() => {
-                  setHoveredNodeId(node.id);
+                  debouncedSetHoveredNodeId(node.id);
                   onHoverNode?.(node.id);
                 }}
                 onMouseLeave={() => {
-                  setHoveredNodeId(null);
+                  debouncedSetHoveredNodeId(null);
                   onHoverNode?.(null);
                 }}
                 onMouseDown={(event) => {

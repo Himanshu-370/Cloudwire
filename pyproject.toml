@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: System :: Systems Administration",
 ]
 [project.optional-dependencies]
-dev = ["twine", "build"]
+dev = ["twine", "build", "ruff>=0.4", "mypy>=1.0"]
 
 dependencies = [
     "fastapi>=0.100",
@@ -46,6 +46,8 @@ cloudwire = "cloudwire.cli:main"
 [project.urls]
 Homepage = "https://github.com/Himanshu-370/cloudwire"
 Issues = "https://github.com/Himanshu-370/cloudwire/issues"
+Changelog = "https://github.com/Himanshu-370/cloudwire/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/Himanshu-370/cloudwire/blob/main/docs/USAGE.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -53,3 +55,14 @@ include = ["cloudwire*"]
 
 [tool.setuptools.package-data]
 cloudwire = ["static/**/*", "static/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cloudwire"]

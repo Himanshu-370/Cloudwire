@@ -140,7 +140,7 @@ const ROW_H = 15;
 const HEADER_H = 22;
 const V_PAD = 8;
 
-export function GraphNode({ node, selected, highlighted, hovered, role, blastHighlight }) {
+export const GraphNode = React.memo(function GraphNode({ node, selected, highlighted, hovered, role, blastHighlight }) {
   const scale = useContext(ViewportScaleContext);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const visual = getServiceVisual(node.service);
@@ -331,4 +331,22 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
       )}
     </g>
   );
-}
+}, function arePropsEqual(prev, next) {
+  return (
+    prev.node.id === next.node.id &&
+    prev.node.position.x === next.node.position.x &&
+    prev.node.position.y === next.node.position.y &&
+    prev.node.service === next.node.service &&
+    prev.node.type === next.node.type &&
+    prev.node.label === next.node.label &&
+    prev.node.state === next.node.state &&
+    prev.node.status === next.node.status &&
+    prev.node.exposed_internet === next.node.exposed_internet &&
+    prev.node.count === next.node.count &&
+    prev.selected === next.selected &&
+    prev.highlighted === next.highlighted &&
+    prev.hovered === next.hovered &&
+    prev.role === next.role &&
+    prev.blastHighlight === next.blastHighlight
+  );
+});

@@ -95,16 +95,15 @@ export function useScanPolling() {
         // FIX #17: update status and graph atomically with the same token guard
         setJobStatus(statusPayload);
 
-        try {
-          await fetchJobGraph(jobId, token);
-          if (token !== pollState.current.token) return;
-          setError("");
-        } catch (graphError) {
-          if (token !== pollState.current.token) return;
-          setError(toMessage(graphError));
-        }
-
         if (isTerminalJobStatus(statusPayload.status)) {
+          try {
+            await fetchJobGraph(jobId, token);
+            if (token !== pollState.current.token) return;
+            setError("");
+          } catch (graphError) {
+            if (token !== pollState.current.token) return;
+            setError(toMessage(graphError));
+          }
           setScanLoading(false);
           if (statusPayload.status === "failed" && statusPayload.error) {
             setError(statusPayload.error);
