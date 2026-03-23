@@ -139,12 +139,42 @@ jobs:
         run: npm run build
 
       - name: Install build tools
-        run: pip install build
+        run: pip install --upgrade build setuptools wheel
 
       - name: Build Python package
         run: python -m build
 
-      - name: Verify static assets are bundled
+      - name: Verify wheel metadata and static assets
+        run: |
+          python - <<'EOF'
+          import zipfile, sys
+          from pathlib import Path
+
+          whl = next(Path('dist').glob('*.whl'))
+
+          with zipfile.ZipFile(whl) as z:
+              names = z.namelist()
+
+              # Check metadata
+              metadata_files = [n for n in names if n.endswith('/METADATA')]
+              if not metadata_files:
+                  print("ERROR: No METADATA file found in wheel!", file=sys.stderr)
+                  sys.exit(1)
+
+              metadata = z.read(metadata_files[0]).decode()
+              if 'Name:' not in metadata or 'Version:' not in metadata:
+                  print(f"ERROR: METADATA missing Name or Version:\n{metadata[:500]}", file=sys.stderr)
+                  sys.exit(1)
+
+              # Check static assets
+              has_html = any('static/index.html' in n for n in names)
+              has_js = any('static/assets' in n and n.endswith('.js') for n in names)
+              if not (has_html and has_js):
+                  print("ERROR: static assets missing from wheel!", file=sys.stderr)
+                  sys.exit(1)
+
+          print(f"OK: {whl.name} — metadata and static assets verified.")
+          EOF
         run: |
           python - <<'EOF'
           import zipfile, sys
