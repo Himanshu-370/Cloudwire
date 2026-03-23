@@ -126,7 +126,8 @@ jobs:
           git add pyproject.toml cloudwire/__init__.py
           git commit -m "chore: bump version ${{ steps.version.outputs.old }} → ${{ steps.version.outputs.new }}"
           git tag "v${{ steps.version.outputs.new }}"
-          git push origin main --follow-tags
+          git push origin main
+          git push origin "v${{ steps.version.outputs.new }}"
 
       # --- Build ---
 
