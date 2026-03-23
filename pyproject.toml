@@ -25,9 +25,6 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: System :: Systems Administration",
 ]
-[project.optional-dependencies]
-dev = ["twine", "build", "ruff>=0.4", "mypy>=1.0"]
-
 dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
@@ -39,6 +36,9 @@ dependencies = [
     "python-multipart>=0.0.5",
     "python-hcl2>=4.3",
 ]
+
+[project.optional-dependencies]
+dev = ["twine", "build", "ruff>=0.4", "mypy>=1.0"]
 
 [project.scripts]
 cloudwire = "cloudwire.cli:main"
