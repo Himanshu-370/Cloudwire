@@ -38,6 +38,16 @@ On first load, select the services you want to scan from the top bar and click *
 
 ---
 
+## Why CloudWire?
+
+Tools like [Rover](https://github.com/im2nguyen/rover), [Terravision](https://github.com/patrickchugh/terravision), and [Inframap](https://github.com/cycloidio/inframap) visualize infrastructure from Terraform state files. CloudWire takes a different approach:
+
+- **Live scanning, not plan-file parsing** — CloudWire queries your AWS account directly via boto3, discovering resources and relationships in real time. No Terraform required. You can also import `.tfstate`/`.tf` files if you prefer.
+- **Relationship inference** — edges aren't just "resource A references resource B." CloudWire resolves IAM policies, environment variable references, event triggers, and VPC containment to surface connections that don't appear in any state file.
+- **Runs entirely local** — single Python process, no database, no cloud backend, no signup. Your AWS credentials never leave your machine.
+
+---
+
 ## Key features
 
 - **Interactive graph** — dark-themed canvas with animated data flow, pan/zoom, and SVG export
