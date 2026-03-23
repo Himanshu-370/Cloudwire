@@ -34,9 +34,10 @@ cloudwire uses OIDC trusted publishing — no API tokens to store or rotate.
    - **PyPI project name:** `cloudwire`
    - **GitHub owner:** your GitHub username or org
    - **Repository name:** `cloudwire`
-   - **Workflow filename:** `publish.yml`
+   - **Workflow filename:** `release.yml`
    - **Environment name:** `pypi`
-4. Save
+4. Add a second publisher with the same settings but **Workflow filename:** `publish.yml` (fallback for manual tag releases)
+5. Save
 
 ### 2. Create the GitHub environment
 
@@ -87,22 +88,22 @@ Before merging, add one of these labels to the PR:
 
 ### Step 3 — Merge the PR
 
-Merge as usual (squash, merge commit, or rebase — all work). On merge, two workflows run in sequence:
+Merge as usual (squash, merge commit, or rebase — all work). On merge, **`release.yml`** runs a single job that does everything:
 
-**`release.yml`** (runs first):
 1. Reads the current version from `pyproject.toml`
 2. Bumps it based on the label
 3. Updates `pyproject.toml` and `cloudwire/__init__.py`
-4. Commits: `chore: bump version 0.2.6 → 0.2.7 [skip ci]`
-5. Creates git tag `v0.2.7`
-6. Pushes the commit and tag to `main`
+4. Commits: `chore: bump version 0.2.6 → 0.2.7`
+5. Creates git tag `v0.2.7` and pushes to `main`
+6. Builds the React frontend (`npm ci && npm run build`)
+7. Builds the Python wheel (`python -m build`)
+8. Verifies static assets are bundled in the wheel
+9. Publishes to PyPI via trusted publishing
+10. Creates a GitHub Release with auto-generated notes and dist artifacts
 
-**`publish.yml`** (triggered by the new tag):
-1. Builds the React frontend (`npm ci && npm run build`)
-2. Builds the Python wheel (`python -m build`)
-3. Verifies static assets are bundled in the wheel
-4. Publishes to PyPI via trusted publishing
-5. Creates a GitHub Release with auto-generated notes and dist artifacts
+If the build or publish fails after the tag was pushed, the tag is automatically cleaned up so the next attempt doesn't collide.
+
+> **Note:** `publish.yml` exists as a fallback for manual tag pushes only. It automatically skips tags created by the automated release to prevent double-publishing.
 
 ### Step 4 — Verify
 
@@ -238,12 +239,12 @@ If a critical bug needs to be fixed on an already-released version:
 # Create a hotfix branch from the release tag
 git checkout -b hotfix/0.1.1 v0.1.0
 
-# Fix the bug, then bump patch version
+# Fix the bug, then bump patch version in pyproject.toml and cloudwire/__init__.py
 # ... edit files ...
 git add -A
 git commit -m "fix: <description>"
 
-# Tag and push
+# Tag and push — publish.yml will build and publish automatically
 git tag v0.1.1
 git push origin hotfix/0.1.1 v0.1.1
 
@@ -252,6 +253,8 @@ git checkout main
 git merge hotfix/0.1.1
 git push
 ```
+
+The tag push triggers `publish.yml` (the manual tag fallback), which handles the build, PyPI publish, and GitHub Release creation automatically via OIDC trusted publishing — no API tokens or `twine` needed.
 
 ---
 
@@ -315,7 +318,7 @@ make dev              # start backend (:8000) and frontend dev server (:5173)
 - [ ] Updated `CHANGELOG.md` with user-facing changes
 - [ ] PR has the correct release label (`release`, `release:minor`, or `release:major`)
 - [ ] PR is merged to `main`
-- [ ] GitHub Actions pipelines (`release.yml` then `publish.yml`) are green
+- [ ] GitHub Actions `Auto Release` workflow is green
 - [ ] `pip install --upgrade cloudwire` on a clean machine shows the new version
 
 ### Manual release
