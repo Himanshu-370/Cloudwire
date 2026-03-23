@@ -175,19 +175,6 @@ jobs:
 
           print(f"OK: {whl.name} — metadata and static assets verified.")
           EOF
-        run: |
-          python - <<'EOF'
-          import zipfile, sys
-          whl = next(__import__('pathlib').Path('dist').glob('*.whl'))
-          with zipfile.ZipFile(whl) as z:
-              names = z.namelist()
-          has_html = any('static/index.html' in n for n in names)
-          has_js   = any('static/assets' in n and n.endswith('.js') for n in names)
-          if not (has_html and has_js):
-              print("ERROR: static assets missing from wheel!", file=sys.stderr)
-              sys.exit(1)
-          print(f"OK: {whl.name} contains static assets.")
-          EOF
 
       # --- Publish ---
 
