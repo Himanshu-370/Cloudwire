@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Lock
@@ -49,9 +48,6 @@ def _sanitize_exc(exc: Exception) -> str:
 
 
 from .scanners._utils import _safe_list
-
-
-_ARN_PATTERN = re.compile(r"^arn:aws:[a-z0-9-]+:")
 
 
 @dataclass
@@ -679,7 +675,9 @@ class AWSGraphScanner(
 
         # Infer parent→child edges from ARN hierarchy.
         # E.g., arn:...:cluster/j-ABC is parent of arn:...:cluster/j-ABC/step/s-DEF
-        if len(discovered_arns) > 1:
+        # Capped at 1000 ARNs to avoid O(n²) blowup with large resource sets.
+        _MAX_ARNS_FOR_HIERARCHY = 1000
+        if 1 < len(discovered_arns) <= _MAX_ARNS_FOR_HIERARCHY:
             sorted_arns = sorted(discovered_arns)
             for i, arn in enumerate(sorted_arns):
                 for j in range(i + 1, len(sorted_arns)):
@@ -693,6 +691,9 @@ class AWSGraphScanner(
                     elif not candidate.startswith(arn[:arn.rfind("/") + 1] if "/" in arn else arn[:arn.rfind(":") + 1]):
                         # No more potential children — different prefix
                         break
+        elif len(discovered_arns) > _MAX_ARNS_FOR_HIERARCHY:
+            logger.info("%s: skipping ARN hierarchy inference (%d ARNs exceeds cap of %d)",
+                        service_name, len(discovered_arns), _MAX_ARNS_FOR_HIERARCHY)
 
         discovered = len(discovered_arns)
         if discovered == 0:

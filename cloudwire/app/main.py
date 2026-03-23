@@ -83,6 +83,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
+        # 'unsafe-inline' for styles is required by the React/Tailwind frontend.
+        # Acceptable for a localhost-only tool with no user-generated content.
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response

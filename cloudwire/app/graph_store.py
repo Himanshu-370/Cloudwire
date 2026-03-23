@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import datetime, timezone
 from threading import Lock
@@ -73,9 +74,14 @@ class GraphStore:
         return payload
 
     def get_graph_payload(self) -> Dict[str, Any]:
+        """Return a deep copy of the cached graph payload.
+
+        The internal cache is never exposed directly — callers receive an
+        independent copy they can safely mutate without corrupting the cache.
+        """
         with self._lock:
             if self._cached_payload is not None:
-                return self._cached_payload
+                return copy.deepcopy(self._cached_payload)
             nodes = [self._serialize_node(node_id, attrs) for node_id, attrs in self.graph.nodes(data=True)]
             edges = [
                 self._serialize_edge(source, target, attrs)
@@ -86,7 +92,7 @@ class GraphStore:
             metadata["edge_count"] = len(edges)
             payload = {"nodes": nodes, "edges": edges, "metadata": metadata}
             self._cached_payload = payload
-            return payload
+            return copy.deepcopy(payload)
 
     def iter_nodes_by_service(self, service: str) -> List[Tuple[str, Dict[str, Any]]]:
         """Return a snapshot of (node_id, attrs_copy) pairs for a given service."""

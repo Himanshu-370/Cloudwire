@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import os
-import socket
 import sys
 import threading
 import webbrowser
 
-_REQUIRED_PACKAGES = ["click", "uvicorn", "fastapi", "boto3", "pydantic", "networkx"]
+_REQUIRED_PACKAGES = ["click", "uvicorn", "fastapi", "boto3", "pydantic", "networkx", "multipart", "hcl2"]
 
 
 def _check_dependencies() -> None:
@@ -38,17 +37,6 @@ import click  # noqa: E402
 import uvicorn  # noqa: E402
 
 from . import __version__  # noqa: E402
-
-
-def _port_is_available(host: str, port: int) -> bool:
-    """Return True if the port is free to bind on the given host."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind((host, port))
-            return True
-        except OSError:
-            return False
 
 
 def _check_for_update(current: str, result: list) -> None:
@@ -108,12 +96,6 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
 
     # Only set region if not already in environment
     os.environ.setdefault("AWS_DEFAULT_REGION", region)
-
-    # Port conflict check — fail fast with a clear message
-    if not _port_is_available(host, port):
-        raise click.ClickException(
-            f"Port {port} is already in use. Try a different port with --port <number>."
-        )
 
     # Start background version check — finishes before uvicorn prints its own output
     _update_result: list = []

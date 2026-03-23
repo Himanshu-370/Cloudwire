@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NoReturn, Optional
 
 from botocore.exceptions import (
     BotoCoreError,
@@ -63,8 +63,8 @@ def friendly_exception_message(exc: Exception) -> str:
     return "Unexpected server error."
 
 
-def handle_tagging_error(exc: Exception, region: str, operation: str):
-    """Convert AWS errors from tagging API to APIError."""
+def handle_tagging_error(exc: Exception, region: str, operation: str) -> NoReturn:
+    """Convert AWS errors from tagging API to APIError. Always raises."""
     from fastapi import status
 
     logger.warning("Tag API error in %s (region=%s): %s: %s", operation, region, type(exc).__name__, exc)

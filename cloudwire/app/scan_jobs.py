@@ -355,7 +355,9 @@ class ScanJobStore:
                 "finished_at": job.finished_at,
                 "error": job.error,
             }
-            graph_store = job.graph_store
+            graph_store = job.graph_store  # stable reference, set at construction and never reassigned
+        # Called outside the job store lock to avoid holding it during serialization.
+        # Thread-safe because GraphStore has its own internal lock.
         graph_payload = graph_store.get_graph_payload()
         metadata = graph_payload.get("metadata", {})
         return {
