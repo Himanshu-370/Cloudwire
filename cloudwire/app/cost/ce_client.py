@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
@@ -74,10 +74,8 @@ def _rate_limit() -> None:
 def _get_period() -> tuple[str, str]:
     now = datetime.now(timezone.utc)
     start = now.replace(day=1).strftime("%Y-%m-%d")
-    # End is tomorrow (exclusive) for CE API
-    end = now.strftime("%Y-%m-%d")
-    if now.day == 1:
-        end = now.strftime("%Y-%m-%d")
+    # CE API end date is exclusive, so use tomorrow to include today's costs
+    end = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     return start, end
 
 
@@ -169,6 +167,12 @@ def fetch_resource_costs(
         client = _ce_client(session)
         _rate_limit()
 
+        # CE requires a SERVICE filter for GetCostAndUsageWithResources
+        service_values = [
+            ce_name
+            for ce_name, canonical in CE_SERVICE_MAP.items()
+            if canonical in RESOURCE_LEVEL_SERVICES
+        ]
         kwargs: Dict[str, Any] = {
             "TimePeriod": {"Start": period_start, "End": period_end},
             "Granularity": "MONTHLY",
@@ -177,10 +181,20 @@ def fetch_resource_costs(
                 {"Type": "DIMENSION", "Key": "RESOURCE_ID"},
             ],
             "Filter": {
-                "Dimensions": {
-                    "Key": "REGION",
-                    "Values": [region],
-                }
+                "And": [
+                    {
+                        "Dimensions": {
+                            "Key": "REGION",
+                            "Values": [region],
+                        }
+                    },
+                    {
+                        "Dimensions": {
+                            "Key": "SERVICE",
+                            "Values": service_values,
+                        }
+                    },
+                ]
             },
         }
 

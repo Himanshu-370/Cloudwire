@@ -19,6 +19,7 @@ class _CacheEntry:
 
 class CostCache:
     _TTL_SECONDS = 3600  # 1 hour
+    _ERROR_TTL_SECONDS = 120  # 2 minutes for error results
 
     def __init__(self) -> None:
         self._lock = Lock()
@@ -48,11 +49,13 @@ class CostCache:
         resource_result: CostResult,
     ) -> None:
         key = self._key(account_id, region)
+        has_error = bool(service_result.error or resource_result.error)
+        ttl = self._ERROR_TTL_SECONDS if has_error else self._TTL_SECONDS
         with self._lock:
             self._store[key] = _CacheEntry(
                 service_result=service_result,
                 resource_result=resource_result,
-                expires_at=time.monotonic() + self._TTL_SECONDS,
+                expires_at=time.monotonic() + ttl,
             )
 
 

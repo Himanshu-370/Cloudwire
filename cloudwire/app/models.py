@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Any, Dict, List, Literal, Optional
 
@@ -24,7 +25,7 @@ class ScanRequest(BaseModel):
     force_refresh: bool = False
     include_iam_inference: Optional[bool] = None
     include_resource_describes: Optional[bool] = None
-    include_costs: bool = False
+    include_costs: bool = Field(default_factory=lambda: os.environ.get("CLOUDWIRE_INCLUDE_COSTS") == "1")
     tag_arns: Optional[List[str]] = Field(default=None, max_length=5000)
 
     @field_validator("region")
