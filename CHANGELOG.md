@@ -2,6 +2,21 @@
 
 All notable changes to CloudWire are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-04-01
+
+### Added
+- **Cost overlay** — visualize AWS spend directly on the infrastructure graph
+  - Per-resource costs for EC2, RDS, S3, DynamoDB, ElastiCache, and Redshift via Cost Explorer API
+  - Service-level cost totals displayed as group annotations for Lambda, SQS, SNS, API Gateway, CloudFront, ECS, Step Functions, and more
+  - Color-coded cost rings on graph nodes (green-yellow-red gradient, log scale)
+  - Cost details in node tooltips and inspector panel
+  - `$ COSTS` toggle in the top bar (opt-in per scan)
+  - `--costs` CLI flag to enable cost overlay from the command line
+  - 1-hour local cache for cost data to respect CE rate limits
+  - Preflight detection for Cost Explorer activation and resource-level data availability
+  - Clear error messages when CE is not activated or IAM permissions are missing
+- New backend module: `cloudwire/app/cost/` (CE client, resource mapper, cache, enricher)
+
 ## [0.2.6] - 2026-03-20
 
 ### Added

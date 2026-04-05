@@ -30,4 +30,4 @@ export {
   generateArchitectureSummary,
 } from "./graph/analysis";
 
-export { computeNetworkAnnotations } from "./graph/annotations";
+export { computeNetworkAnnotations, computeCostAnnotations } from "./graph/annotations";

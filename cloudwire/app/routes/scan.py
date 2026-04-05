@@ -53,6 +53,7 @@ def _resolve_scan_options(payload: ScanRequest) -> ScanExecutionOptions:
         mode=payload.mode,
         include_iam_inference=_resolve_option(payload.include_iam_inference, default_iam),
         include_resource_describes=_resolve_option(payload.include_resource_describes, default_describes),
+        include_costs=payload.include_costs,
     )
 
 
@@ -250,7 +251,8 @@ def register_routes(api: APIRouter, job_store: ScanJobStore) -> None:
         cache_key = ScanJobStore.build_cache_key(
             account_id=account_id, region=payload.region, services=services,
             mode=options.mode, include_iam_inference=options.include_iam_inference,
-            include_resource_describes=options.include_resource_describes, tag_arns=tag_arns,
+            include_resource_describes=options.include_resource_describes,
+            include_costs=options.include_costs, tag_arns=tag_arns,
         )
         reusable_job_id, cached = job_store.find_reusable_job(cache_key=cache_key, force_refresh=payload.force_refresh)
         if reusable_job_id:

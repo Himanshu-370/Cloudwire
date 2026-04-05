@@ -252,6 +252,9 @@ export function TopBar({
   tagDiscovery,
   onScanByTags,
   tagScanLoading,
+  // Cost overlay props
+  costOverlayEnabled,
+  onCostOverlayChange,
   // Terraform props
   onOpenTerraformFilePanel,
   terraformLoaded,
@@ -359,6 +362,21 @@ export function TopBar({
             <option value="quick">Quick</option>
             <option value="deep">Deep</option>
           </select>
+        )}
+
+        {/* Cost overlay toggle — hidden in terraform mode */}
+        {scanFilterMode !== "terraform" && onCostOverlayChange && (
+          <label
+            className={`topbar-cost-toggle ${costOverlayEnabled ? "active" : ""}`}
+            title="Overlay AWS Cost Explorer data on graph nodes. Requires Cost Explorer to be enabled in your AWS account."
+          >
+            <input
+              type="checkbox"
+              checked={costOverlayEnabled}
+              onChange={(e) => onCostOverlayChange(e.target.checked)}
+            />
+            <span className="topbar-cost-toggle-label">$ COSTS</span>
+          </label>
         )}
 
         {/* TAGS mode controls */}

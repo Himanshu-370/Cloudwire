@@ -54,6 +54,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
     blastRadius,
     onAnnotationClick,
     collapsedContainers,
+    costOverlayEnabled,
   },
   ref
 ) {
@@ -506,6 +507,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
                   hovered={hovered}
                   role={nodeRoles[node.id]}
                   blastHighlight={blastHighlight}
+                  costOverlayEnabled={costOverlayEnabled}
                 />
               </g>
             );

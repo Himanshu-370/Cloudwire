@@ -1,4 +1,59 @@
 /**
+ * Cost service-level annotations — banners over service groups showing total spend.
+ */
+export function computeCostAnnotations(positionedNodes, costServiceTotals) {
+  if (!costServiceTotals || typeof costServiceTotals !== "object") return [];
+
+  const annotations = [];
+  const nodesByService = new Map();
+
+  positionedNodes.forEach((n) => {
+    if (!n.position || !n.service) return;
+    // Only show service-level annotations for services that don't have per-resource costs
+    if (n.cost_usd != null) return; // This node has resource-level cost
+    if (!nodesByService.has(n.service)) nodesByService.set(n.service, []);
+    nodesByService.get(n.service).push(n);
+  });
+
+  // Check which services have ONLY service-level costs (no resource-level nodes)
+  const servicesWithResourceCosts = new Set();
+  positionedNodes.forEach((n) => {
+    if (n.cost_usd != null && n.service) servicesWithResourceCosts.add(n.service);
+  });
+
+  for (const [service, total] of Object.entries(costServiceTotals)) {
+    if (total <= 0) continue;
+    if (servicesWithResourceCosts.has(service)) continue; // Has per-resource costs, skip annotation
+
+    const serviceNodes = nodesByService.get(service);
+    if (!serviceNodes || serviceNodes.length === 0) continue;
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    serviceNodes.forEach((n) => {
+      minX = Math.min(minX, n.position.x);
+      maxX = Math.max(maxX, n.position.x);
+      minY = Math.min(minY, n.position.y);
+      maxY = Math.max(maxY, n.position.y);
+    });
+
+    const pad = 70;
+    const formatted = total < 100
+      ? `$${total.toFixed(2)}`
+      : `$${Math.round(total).toLocaleString()}`;
+
+    annotations.push({
+      id: `cost-svc:${service}`,
+      title: `${service.toUpperCase()}: ${formatted} MTD`,
+      subtitle: `${serviceNodes.length} resource${serviceNodes.length === 1 ? "" : "s"} (service-level total)`,
+      minX: minX - pad, maxX: maxX + pad, minY: minY - pad, maxY: maxY + pad,
+      tone: "cost-service", rx: 10,
+    });
+  }
+
+  return annotations;
+}
+
+/**
  * Network topology container annotations (VPC, AZ, subnet zones).
  */
 

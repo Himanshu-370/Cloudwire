@@ -137,7 +137,7 @@ export function useScanPolling() {
   );
 
   const runScan = useCallback(
-    async ({ region = DEFAULT_REGION, services = [], mode = "quick", forceRefresh = false, tagArns = null }) => {
+    async ({ region = DEFAULT_REGION, services = [], mode = "quick", forceRefresh = false, includeCosts = false, tagArns = null }) => {
       clearPolling();
       const startToken = pollState.current.token;
       // FIX #1: immediately clear stale graph and status so the UI doesn't show
@@ -149,6 +149,7 @@ export function useScanPolling() {
 
       try {
         const scanBody = { region, services, mode, force_refresh: forceRefresh };
+        if (includeCosts) scanBody.include_costs = true;
         if (tagArns) scanBody.tag_arns = tagArns;
         const payload = await fetchApi("/scan", {
           method: "POST",

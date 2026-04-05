@@ -24,6 +24,7 @@ class ScanRequest(BaseModel):
     force_refresh: bool = False
     include_iam_inference: Optional[bool] = None
     include_resource_describes: Optional[bool] = None
+    include_costs: bool = False
     tag_arns: Optional[List[str]] = Field(default=None, max_length=5000)
 
     @field_validator("region")
