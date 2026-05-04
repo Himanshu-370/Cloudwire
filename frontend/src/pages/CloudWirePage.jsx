@@ -82,6 +82,7 @@ export default function CloudWirePage() {
   const [tagScanLoading, setTagScanLoading] = useState(false);
   const [collapsedContainers, setCollapsedContainers] = useState(new Set());
   const [hoveredExposedPath, setHoveredExposedPath] = useState(null);
+  const [costOverlayEnabled, setCostOverlayEnabled] = useState(false);
 
   const tagDiscovery = useTagDiscovery(region, scanFilterMode === "tags");
   const terraform = useTerraformUpload();
@@ -109,6 +110,7 @@ export default function CloudWirePage() {
     focusDepth,
     layoutMode,
     skipRegionFilter: scanFilterMode === "terraform",
+    costOverlayEnabled,
   });
 
   // --- Path finder ---
@@ -357,12 +359,13 @@ export default function CloudWirePage() {
         services: discoveredServices,
         mode: scanMode,
         forceRefresh,
+        includeCosts: costOverlayEnabled,
         tagArns: result.arns,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [tagDiscovery, region, scanMode, forceRefresh, runScan, setError]);
+  }, [tagDiscovery, region, scanMode, forceRefresh, costOverlayEnabled, runScan, setError]);
 
   const handleNodeSelect = useCallback((nodeId) => {
     const handled = pathFinderHandleNodeSelect(nodeId, setSelectedNodeId);
@@ -380,9 +383,11 @@ export default function CloudWirePage() {
         onServicesChange={setSelectedServices}
         scanMode={scanMode}
         onScanModeChange={setScanMode}
+        costOverlayEnabled={costOverlayEnabled}
+        onCostOverlayChange={setCostOverlayEnabled}
         onRunScan={() => {
           hasAutoCollapsed.current = false;
-          runScan({ region, services: selectedServices, mode: scanMode, forceRefresh }).catch(() => {});
+          runScan({ region, services: selectedServices, mode: scanMode, forceRefresh, includeCosts: costOverlayEnabled }).catch(() => {});
         }}
         onStopScan={() => stopScan().catch((scanError) => setError(scanError instanceof Error ? scanError.message : String(scanError)))}
         scanLoading={scanLoading}
@@ -615,6 +620,7 @@ export default function CloudWirePage() {
               annotations={laidOutGraph.annotations}
               selectedNodeId={selectedNodeId}
               onSelectNode={handleNodeSelect}
+              costOverlayEnabled={costOverlayEnabled}
               onClearSelection={() => {
                 resourceRequestTokenRef.current += 1;
                 setSelectedNodeId(null);

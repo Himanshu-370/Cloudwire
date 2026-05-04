@@ -28,6 +28,9 @@ cloudwire
 
 # Target a specific profile and region
 cloudwire --profile staging --region us-east-1
+
+# Overlay cost data from AWS Cost Explorer
+cloudwire --costs
 ```
 
 > **Tip:** Prefer isolated installs? Use `pipx install cloudwire` instead.
@@ -56,6 +59,7 @@ Tools like [Rover](https://github.com/im2nguyen/rover), [Terravision](https://gi
 - **VPC topology** — subnets, security groups, IGWs, NAT GWs, route tables with AZ grouping and internet exposure detection
 - **Tag-based scanning** — discover and scan resources by AWS tags
 - **Terraform import** — upload `.tfstate` or `.tf` files to visualize without AWS credentials
+- **Cost overlay** — visualize per-resource AWS spend from Cost Explorer directly on graph nodes (EC2, RDS, S3, DynamoDB, ElastiCache, Redshift), with service-level totals for Lambda, SQS, and more
 - **Analysis tools** — blast radius, shortest path, architecture summary, pattern detection
 - **Three layout modes** — Circular, Flow, Swimlane — switchable from the toolbar
 - **Permission-aware** — missing IAM policies surfaced clearly, never blocks the scan
@@ -74,6 +78,15 @@ arn:aws:iam::aws:policy/ReadOnlyAccess
 ```
 
 If you use a more restrictive policy, CloudWire will scan what it can and clearly report which services were denied — it never fails silently.
+
+### Cost overlay (optional)
+
+The `--costs` flag requires AWS Cost Explorer to be activated in the [Billing console](https://console.aws.amazon.com/billing/home#/costexplorer). For per-resource cost breakdowns, enable "hourly and resource-level data" in Cost Explorer settings (takes 24 hours to activate). The additional IAM permissions required are:
+
+```
+ce:GetCostAndUsage
+ce:GetCostAndUsageWithResources
+```
 
 ---
 

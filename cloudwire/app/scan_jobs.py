@@ -399,6 +399,7 @@ class ScanJobStore:
         mode: ScanMode,
         include_iam_inference: bool,
         include_resource_describes: bool,
+        include_costs: bool = False,
         tag_arns: Optional[List[str]] = None,
     ) -> str:
         ordered_services = ",".join(sorted(services))
@@ -409,6 +410,7 @@ class ScanJobStore:
             mode,
             f"iam={int(include_iam_inference)}",
             f"describe={int(include_resource_describes)}",
+            f"costs={int(include_costs)}",
         ]
         if tag_arns:
             arns_str = ",".join(sorted(tag_arns))

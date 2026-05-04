@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   buildClusteredGraph,
   collapseContainerNodes,
+  computeCostAnnotations,
   computeFocusSubgraph,
   computeNetworkAnnotations,
   countServices,
@@ -23,6 +24,7 @@ export function useGraphPipeline({
   focusDepth,
   layoutMode,
   skipRegionFilter,
+  costOverlayEnabled,
 }) {
   // Region filter
   const regionFilteredGraph = useMemo(
@@ -95,8 +97,15 @@ export function useGraphPipeline({
     if (networkAnnotations.length > 0) {
       result.annotations = [...networkAnnotations, ...(result.annotations || [])];
     }
+    // Add cost service-level annotations when cost overlay is active
+    if (costOverlayEnabled && graphData?.metadata?.cost_service_totals) {
+      const costAnnotations = computeCostAnnotations(result.nodes, graphData.metadata.cost_service_totals);
+      if (costAnnotations.length > 0) {
+        result.annotations = [...(result.annotations || []), ...costAnnotations];
+      }
+    }
     return result;
-  }, [focusSubgraph, layoutMode]);
+  }, [focusSubgraph, layoutMode, costOverlayEnabled, graphData?.metadata?.cost_service_totals]);
 
   const graphNodes = laidOutGraph.nodes;
   const graphNodeIds = useMemo(() => new Set(graphNodes.map((node) => node.id)), [graphNodes]);

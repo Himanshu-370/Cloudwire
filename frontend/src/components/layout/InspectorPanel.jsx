@@ -125,6 +125,27 @@ export function InspectorPanel({ resourceDetails, allNodes, onClose, onJumpToNod
       {/* ── Color accent ── */}
       <div className="inspector-accent" style={{ background: `linear-gradient(90deg, ${visual.color}66, transparent)` }} />
 
+      {/* ── Cost ── */}
+      {node.cost_usd != null && (
+        <section className="inspector-section inspector-section-cost">
+          <div className="inspector-section-title" style={{ color: "#f0a500" }}>Cost</div>
+          <div className="inspector-meta-list">
+            <div className="inspector-meta-row">
+              <span className="inspector-meta-key">Month-to-date</span>
+              <span className="inspector-meta-val" style={{ color: "#f0a500", fontWeight: 600 }}>
+                {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(node.cost_usd)}
+              </span>
+            </div>
+            {node.cost_period && (
+              <div className="inspector-meta-row">
+                <span className="inspector-meta-key">Period</span>
+                <span className="inspector-meta-val">{node.cost_period}</span>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* ── Metadata ── */}
       {metaEntries.length > 0 && (
         <section className="inspector-section">

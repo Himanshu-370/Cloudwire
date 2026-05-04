@@ -66,9 +66,10 @@ def _print_update_hint(current: str, result: list) -> None:
 @click.option("--profile", default=None, envvar="AWS_PROFILE", help="AWS credentials profile from ~/.aws/credentials.")
 @click.option("--region", default="us-east-1", show_default=True, envvar="AWS_DEFAULT_REGION", help="Default AWS region.")
 @click.option("--no-browser", is_flag=True, default=False, help="Do not open the browser automatically.")
+@click.option("--costs", is_flag=True, default=False, help="Fetch AWS Cost Explorer data and overlay costs on the graph. Requires Cost Explorer to be activated in the AWS billing console.")
 @click.option("--print-url", is_flag=True, default=False, help="Print the URL to stdout and exit (useful for SSH tunnels).")
 @click.version_option(version=__version__, prog_name="cloudwire")
-def main(port: int, host: str, profile: str | None, region: str, no_browser: bool, print_url: bool) -> None:
+def main(port: int, host: str, profile: str | None, region: str, no_browser: bool, costs: bool, print_url: bool) -> None:
     """Scan and visualize your AWS infrastructure as an interactive graph.
 
     AWS credentials are read from the standard credential chain:
@@ -81,6 +82,7 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
       cloudwire                              # use default AWS profile
       cloudwire --profile staging            # use a named profile
       cloudwire --region eu-west-1           # override region
+      cloudwire --costs                      # overlay cost data from AWS Cost Explorer
       cloudwire --port 9000 --no-browser     # custom port, skip auto-open
       cloudwire --print-url                  # print URL only (SSH tunnel use case)
     """
@@ -96,6 +98,9 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
 
     # Only set region if not already in environment
     os.environ.setdefault("AWS_DEFAULT_REGION", region)
+
+    if costs:
+        os.environ["CLOUDWIRE_INCLUDE_COSTS"] = "1"
 
     # Start background version check — finishes before uvicorn prints its own output
     _update_result: list = []

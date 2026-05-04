@@ -24,6 +24,33 @@ export function getNodeFrame(node, selected) {
   return NODE_DIMENSIONS.regular;
 }
 
+// Cost overlay: green-yellow-red gradient (log scale)
+function getCostColor(costUsd, maxCost) {
+  if (!costUsd || costUsd <= 0) return null;
+  const max = Math.max(maxCost || 100, 1);
+  // Log scale: map [0.01, max] -> [0, 1]
+  const t = Math.min(1, Math.max(0, Math.log10(costUsd + 1) / Math.log10(max + 1)));
+  // Green(0) -> Yellow(0.5) -> Red(1)
+  if (t < 0.5) {
+    const p = t * 2; // 0..1 within green-yellow
+    const r = Math.round(0 + p * 240);
+    const g = Math.round(204 - p * 39); // 204 -> 165
+    const b = Math.round(106 - p * 106); // green tint -> 0
+    return `rgb(${r},${g},${b})`;
+  }
+  const p = (t - 0.5) * 2; // 0..1 within yellow-red
+  const r = Math.round(240 + p * 15);
+  const g = Math.round(165 - p * 165);
+  return `rgb(${r},${g},0)`;
+}
+
+function formatCost(costUsd) {
+  if (costUsd == null) return null;
+  if (costUsd < 0.01) return "$0.00";
+  if (costUsd < 100) return `$${costUsd.toFixed(2)}`;
+  return `$${Math.round(costUsd).toLocaleString()}`;
+}
+
 const ROLE_META = {
   trigger:   { color: "#ff9900", label: "TRIGGER",  width: 42 },
   processor: { color: "#00e7ff", label: "PROC",     width: 32 },
@@ -120,6 +147,12 @@ function getTooltipRows(node) {
     if (Array.isArray(node.outbound_rules_parsed)) rows.push({ key: "outbound rules", val: `${node.outbound_rules_parsed.length} rule(s)` });
   }
 
+  // Cost data — show near top of tooltip when available
+  if (node.cost_usd != null) {
+    rows.push({ key: "cost (MTD)", val: formatCost(node.cost_usd) });
+    if (node.cost_period) rows.push({ key: "period", val: node.cost_period });
+  }
+
   // Exposed internet warning — applies to any service
   if (node.exposed_internet) {
     rows.push({ key: "EXPOSED", val: "internet-facing" });
@@ -140,7 +173,7 @@ const ROW_H = 15;
 const HEADER_H = 22;
 const V_PAD = 8;
 
-export const GraphNode = React.memo(function GraphNode({ node, selected, highlighted, hovered, role, blastHighlight }) {
+export const GraphNode = React.memo(function GraphNode({ node, selected, highlighted, hovered, role, blastHighlight, costOverlayEnabled }) {
   const scale = useContext(ViewportScaleContext);
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const visual = getServiceVisual(node.service);
@@ -192,6 +225,9 @@ export const GraphNode = React.memo(function GraphNode({ node, selected, highlig
   if (blastHighlight === "downstream") blastRingColor = "#00e7ff";
   if (blastHighlight === "center")     blastRingColor = "#ffffff";
 
+  const costColor = costOverlayEnabled ? getCostColor(node.cost_usd, 500) : null;
+  const costLabel = costOverlayEnabled && node.cost_usd != null ? formatCost(node.cost_usd) : null;
+
   return (
     <g
       transform={`translate(${left}, ${top})`}
@@ -219,6 +255,19 @@ export const GraphNode = React.memo(function GraphNode({ node, selected, highlig
           strokeWidth="1.8"
           strokeOpacity="0.75"
           strokeDasharray={blastHighlight === "center" ? "0" : "5,3"}
+        />
+      )}
+
+      {/* Cost overlay ring */}
+      {costColor && !blastRingColor && (
+        <circle
+          cx={centerX}
+          cy={centerY}
+          r={outerRadius + 6}
+          fill="none"
+          stroke={costColor}
+          strokeWidth="2.5"
+          strokeOpacity="0.85"
         />
       )}
 
@@ -271,6 +320,11 @@ export const GraphNode = React.memo(function GraphNode({ node, selected, highlig
           <text x={centerX} y={frame.height + 30} textAnchor="middle" fontSize="9" className="graph-node-kind" fill={visual.color} opacity="0.6">
             {visual.label}
           </text>
+          {costLabel && (
+            <text x={centerX} y={frame.height + 43} textAnchor="middle" fontSize="10" fontWeight="600" className="graph-node-cost-label" fill={costColor || "#f0a500"}>
+              {costLabel}
+            </text>
+          )}
         </>
       )}
 
@@ -342,11 +396,13 @@ export const GraphNode = React.memo(function GraphNode({ node, selected, highlig
     prev.node.state === next.node.state &&
     prev.node.status === next.node.status &&
     prev.node.exposed_internet === next.node.exposed_internet &&
+    prev.node.cost_usd === next.node.cost_usd &&
     prev.node.count === next.node.count &&
     prev.selected === next.selected &&
     prev.highlighted === next.highlighted &&
     prev.hovered === next.hovered &&
     prev.role === next.role &&
-    prev.blastHighlight === next.blastHighlight
+    prev.blastHighlight === next.blastHighlight &&
+    prev.costOverlayEnabled === next.costOverlayEnabled
   );
 });

@@ -55,6 +55,7 @@ class ScanExecutionOptions:
     mode: ScanMode = "quick"
     include_iam_inference: bool = False
     include_resource_describes: bool = False
+    include_costs: bool = False
     max_service_workers: int = 5
     apigw_integration_workers: int = 16
     eventbridge_target_workers: int = 8
@@ -282,6 +283,10 @@ class AWSGraphScanner(
 
         # Post-scan: compute internet exposure if VPC topology was scanned
         self._compute_network_exposure()
+
+        # Post-scan: enrich nodes with cost data if requested
+        if self.options.include_costs and not self._is_cancelled():
+            self._enrich_with_costs(session, region, account_id)
 
         duration_ms = int((perf_counter() - started_at) * 1000)
         self.store.update_metadata(
@@ -581,6 +586,22 @@ class AWSGraphScanner(
                 })
                 for resource_node, path, path_node_ids in exposure_updates
             ])
+
+    def _enrich_with_costs(
+        self, session: boto3.session.Session, region: str, account_id: str
+    ) -> None:
+        """Post-scan cost enrichment. Never raises — failures are logged as warnings."""
+        try:
+            from .cost import enrich_graph_with_costs
+
+            result = enrich_graph_with_costs(self.store, session, region, account_id)
+            for warning in result.warnings:
+                self.store.add_warning(f"[cost] {warning}")
+            if result.nodes_enriched:
+                logger.info("Cost enrichment complete: %d nodes enriched", result.nodes_enriched)
+        except Exception as exc:
+            logger.exception("Cost enrichment failed")
+            self.store.add_warning(f"[cost] Failed to fetch cost data: {type(exc).__name__}")
 
     def _parse_lambda_arn(self, value: Optional[str]) -> Optional[str]:
         if not value:
