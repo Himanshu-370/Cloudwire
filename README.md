@@ -1,4 +1,4 @@
-# CloudWire
+# cloudwire
 
 <p align="center">
   <a href="https://pypi.org/project/cloudwire/"><img src="https://img.shields.io/pypi/v/cloudwire?color=blue&label=PyPI" alt="PyPI version"></a>
@@ -17,11 +17,13 @@
 
 ---
 
-CloudWire connects to your AWS account, discovers resources across the services you choose, and draws them as a live interactive graph. Each node is an AWS resource. Each edge is a real relationship — an event trigger, a queue subscription, an API integration, a database connection.
+cloudwire connects to your AWS account, discovers resources across the services you choose, and draws them as a live interactive graph. Each node is an AWS resource. Each edge is a real relationship — an event trigger, a queue subscription, an API integration, a database connection.
 
 The result is a map of how your infrastructure is actually wired together.
 
-![CloudWire graph visualization](docs/cloudgraph.svg)
+<p align="center">
+  <img src="docs/demo.gif" alt="cloudwire demo" width="700">
+</p>
 
 ---
 
@@ -82,7 +84,7 @@ Full CLI reference: [`docs/USAGE.md`](docs/USAGE.md#cli-reference)
 
 ## AWS Credentials
 
-CloudWire reads credentials from the standard AWS credential chain — any of these work:
+cloudwire reads credentials from the standard AWS credential chain — any of these work:
 
 ```bash
 # AWS SSO
@@ -105,7 +107,7 @@ export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... && cloudwire
 
 ## Required AWS Permissions
 
-CloudWire needs **read-only** access. The quickest way is to attach the `ReadOnlyAccess` AWS managed policy. For a least-privilege setup, grant only the permissions for the services you scan:
+cloudwire needs **read-only** access. The quickest way is to attach the `ReadOnlyAccess` AWS managed policy. For a least-privilege setup, grant only the permissions for the services you scan:
 
 | Service | Permissions |
 |---------|-------------|

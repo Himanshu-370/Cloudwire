@@ -205,7 +205,7 @@ Your manual service selections are preserved — they are not overwritten by tag
 You can visualize infrastructure from Terraform files without AWS credentials:
 
 1. Drag and drop `.tfstate`, `.json` (state files), or `.tf` (HCL) files onto the **Terraform drop zone** in the UI
-2. CloudWire parses the files, extracts `aws_*` resources, and builds the graph using the same visualization pipeline as live scans
+2. cloudwire parses the files, extracts `aws_*` resources, and builds the graph using the same visualization pipeline as live scans
 3. Relationships between resources are inferred from resource attributes, ARN references, and environment variables
 
 **Limits:**
@@ -352,7 +352,7 @@ The graph is fetched after the scan job transitions to `completed`. If your acco
 ---
 
 **Permission errors during scan**
-If your IAM role or user is missing permissions for some services, CloudWire shows them in an expandable panel at the bottom of the page. Permission errors are highlighted in red. Click the panel to see the full list. Grant the missing permissions (see [minimum IAM permissions](#minimum-iam-permissions)) and rescan.
+If your IAM role or user is missing permissions for some services, cloudwire shows them in an expandable panel at the bottom of the page. Permission errors are highlighted in red. Click the panel to see the full list. Grant the missing permissions (see [minimum IAM permissions](#minimum-iam-permissions)) and rescan.
 
 ---
 

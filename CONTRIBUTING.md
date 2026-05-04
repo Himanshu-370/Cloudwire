@@ -1,4 +1,4 @@
-# Contributing to CloudWire
+# Contributing to cloudwire
 
 Thanks for considering a contribution! This guide covers everything you need to get started.
 

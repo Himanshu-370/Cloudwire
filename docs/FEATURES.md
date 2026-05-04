@@ -1,12 +1,12 @@
-# CloudWire — Features
+# cloudwire — Features
 
-A complete overview of what CloudWire does and what you can do with it.
+A complete overview of what cloudwire does and what you can do with it.
 
 ---
 
 ## Core concept
 
-CloudWire connects to your AWS account, discovers resources across the services you choose, and draws them as an interactive graph in your browser. Each node is an AWS resource. Each edge is a real relationship — an event trigger, a queue subscription, an API integration, a database connection.
+cloudwire connects to your AWS account, discovers resources across the services you choose, and draws them as an interactive graph in your browser. Each node is an AWS resource. Each edge is a real relationship — an event trigger, a queue subscription, an API integration, a database connection.
 
 The result is a live map of how your infrastructure is actually wired together.
 
@@ -15,7 +15,7 @@ The result is a live map of how your infrastructure is actually wired together.
 ## Scanning
 
 ### Multi-service scanning
-Select any combination of AWS services to scan in a single pass. CloudWire scans all selected services in parallel and builds the graph as results come in — you don't wait for one service to finish before the next starts.
+Select any combination of AWS services to scan in a single pass. cloudwire scans all selected services in parallel and builds the graph as results come in — you don't wait for one service to finish before the next starts.
 
 ### Real-time progress
 A progress bar tracks how many services have been scanned. The graph populates live as each service completes — you can start exploring before the full scan finishes.
@@ -82,7 +82,7 @@ Select any node and toggle blast radius mode to highlight everything connected t
 Instantly answers "if this Lambda goes down, what else breaks?" or "what feeds into this queue?"
 
 ### Path finder
-Select a source and destination node to find the shortest connection path between them. CloudWire traces the route through the graph and highlights every hop along the way.
+Select a source and destination node to find the shortest connection path between them. cloudwire traces the route through the graph and highlights every hop along the way.
 
 ### Focus mode
 Narrow the graph to show only a selected node and its immediate neighbors. Adjust the hop depth (1, 2, or 3 hops) to control how much context you see. Everything outside the focus is faded out.
@@ -97,10 +97,10 @@ In flow layout, entry points (nodes with outgoing edges but no incoming edges) a
 
 ## VPC network topology
 
-When you include **VPC Network** in your scan, CloudWire renders a CloudMapper-style network diagram showing how your resources sit inside VPCs, subnets, and availability zones.
+When you include **VPC Network** in your scan, cloudwire renders a CloudMapper-style network diagram showing how your resources sit inside VPCs, subnets, and availability zones.
 
 ### Scoped VPC scanning (two-phase)
-VPC scanning runs after all other services complete (Phase 2). CloudWire only fetches infrastructure for VPCs that your scanned resources actually reference — if your Lambdas and RDS instances use 2 out of 15 VPCs, only those 2 are scanned. This dramatically reduces API calls and graph clutter.
+VPC scanning runs after all other services complete (Phase 2). cloudwire only fetches infrastructure for VPCs that your scanned resources actually reference — if your Lambdas and RDS instances use 2 out of 15 VPCs, only those 2 are scanned. This dramatically reduces API calls and graph clutter.
 
 ### Internet anchor nodes
 Each VPC with an Internet Gateway gets a synthetic **Internet** node showing the path from the public internet into your infrastructure.
@@ -201,7 +201,7 @@ Generate an automatic architecture summary for the scanned graph. The summary de
 
 ## Scan warnings and permission errors
 
-When CloudWire lacks IAM permissions for a service, it reports the error clearly instead of failing silently. Permission errors and scan warnings appear in an expandable panel at the bottom of the page:
+When cloudwire lacks IAM permissions for a service, it reports the error clearly instead of failing silently. Permission errors and scan warnings appear in an expandable panel at the bottom of the page:
 
 - **Permission errors** are shown in red with a count badge — tells you exactly which services need IAM access
 - **Other warnings** (e.g. quick-mode skipped features, truncated results) shown in amber
@@ -214,7 +214,7 @@ This makes it easy to incrementally grant permissions — scan, see what's missi
 ## Privacy and security
 
 - **All data stays local.** Nothing is sent to any external server. The graph is built in memory on your machine and served only to your local browser.
-- **Read-only AWS access.** CloudWire never creates, modifies, or deletes any AWS resources. It only calls List and Describe APIs.
+- **Read-only AWS access.** cloudwire never creates, modifies, or deletes any AWS resources. It only calls List and Describe APIs.
 - **Credentials never leave your terminal.** AWS credentials are read from your local credential chain and used only to make API calls to AWS directly.
 - **Runs on localhost only.** The server binds to `127.0.0.1` by default and is never exposed to your network.
 
@@ -222,7 +222,7 @@ This makes it easy to incrementally grant permissions — scan, see what's missi
 
 ## Works with every AWS auth method
 
-CloudWire reads credentials from the standard AWS credential chain. Any tool that writes to `~/.aws/credentials` works automatically:
+cloudwire reads credentials from the standard AWS credential chain. Any tool that writes to `~/.aws/credentials` works automatically:
 
 | Tool | How to use |
 |------|-----------|

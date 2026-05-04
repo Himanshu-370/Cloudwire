@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CloudWire are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
+All notable changes to cloudwire are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [0.2.6] - 2026-03-20
 

@@ -1,6 +1,6 @@
 # Architecture
 
-How CloudWire works under the hood — from `pip install` to interactive graph.
+How cloudwire works under the hood — from `pip install` to interactive graph.
 
 ---
 
@@ -236,7 +236,7 @@ The Terraform parser handles `.tfstate` (JSON) and `.tf` (HCL) files uploaded vi
 
 **Two-pass algorithm:**
 
-*Pass 1 — Node registration:* Each `aws_*` resource in the state file is mapped to a CloudWire service/type pair via an 80+ entry lookup table (`TF_RESOURCE_TYPE_MAP`). Sensitive attributes (passwords, tokens, private keys) are stripped before storage. Secondary indices are built for O(1) edge lookups.
+*Pass 1 — Node registration:* Each `aws_*` resource in the state file is mapped to a cloudwire service/type pair via an 80+ entry lookup table (`TF_RESOURCE_TYPE_MAP`). Sensitive attributes (passwords, tokens, private keys) are stripped before storage. Secondary indices are built for O(1) edge lookups.
 
 *Pass 2 — Edge inference:* Type-specific extractors handle Lambda environment variables, API Gateway integration URIs, EventBridge rule-target links, ECS cluster-service-task chains, CloudFront origins, IAM role attachments, and more. A generic ARN sweep catches any remaining cross-resource references.
 
